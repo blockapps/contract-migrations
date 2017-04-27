@@ -12,7 +12,7 @@ import           Control.Monad.Logger
 
 import           Control.Error
 import           Control.Lens
-import           Data.ByteString
+import           Data.ByteString (ByteString)
 import qualified Data.Map.Strict                as Map
 import           Data.Text
 import qualified Data.Text.IO                   as T
@@ -57,8 +57,10 @@ uploadSpec = do
       it "can upload a many contracts" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        Right newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml")
-        (newCs !! 1) ^. contractName  `shouldBe` "IdentityAccessManager"
+        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml")
+        print $ newCs
+        let (Right newCs') = newCs
+        (newCs' !! 0) ^. contractName  `shouldBe` "IdentityAccessManager"
 
 --------------------------------------------------------------------------------
 -- utils

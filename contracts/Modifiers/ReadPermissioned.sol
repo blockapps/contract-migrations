@@ -1,7 +1,9 @@
+import ./Owned.sol
+
 contract ReadPermissioned is Owned {
 
   mapping(address => bool) readers;
-  modifier onlyReader() { if (isReader(msg.sender)) _; }
+  modifier onlyReader() { if (isReader(msg.sender)) _ }
  
   event AddReader(address owner, address reader);
 

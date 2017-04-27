@@ -1,3 +1,7 @@
+import ./Modifiers/Owned.sol
+import ./Storage/BasicUserStorage.sol
+import ./Login.sol
+
 contract IdentityAccessManager is Owned {
 
   mapping (address => address) public userToStore;
