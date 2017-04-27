@@ -17,7 +17,7 @@ import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
 import           BlockApps.Ethereum       (Address)
 import           Control.Error
-import           Control.Lens             (mapMOf, (^.), (&), (.~))
+import           Control.Lens             ((^.), (&), (.~))
 import           Control.Lens.TH          (makeLenses)
 import           Control.Monad            (forM)
 import           Control.Monad.Except
@@ -60,11 +60,8 @@ createAdmin :: ClientEnv
             -> ExceptT MigrationError IO Address
 createAdmin clientEnv admin =
     let postUsersUserRequest = PostUsersUserRequest (admin^.adminFaucet) (admin^.adminPassword)
-    in do
-      addr <- ExceptT $ fmap (first message) $
-           runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
-      liftIO $ print addr
-      return addr
+    in ExceptT $ fmap (first message) $
+         runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
   where
     message :: ServantError -> MigrationError
     message = BlocError . T.pack . show
@@ -141,8 +138,8 @@ grabDependencySet :: FilePath
 grabDependencySet fp = execStateT (grabDependencySet' fp) S.empty
   where
     grabDependencySet' :: FilePath -> StateT (S.Set FilePath) (ExceptT MigrationError IO) ()
-    grabDependencySet' fp = do
-      sourceCode <- lift $ grabSourceCode "." fp
+    grabDependencySet' filepath = do
+      sourceCode <- lift $ grabSourceCode "." filepath
       let imps = grabImports sourceCode
       seen <- get
       let new = filter (not . flip S.member seen) imps
@@ -218,7 +215,6 @@ deployContracts env admin ownerAddr contractYaml = do
     Left e -> throwError . ParseError . T.pack . show $ e
     Right cs -> forM cs $ \c -> do
       c' <- withSourceCode c
-      liftIO . putStrLn . T.unpack $ c' ^. contractUploadSource
       addr <- deployContract env admin ownerAddr c'
       return $ Contract (c^.contractUploadName) addr
 
@@ -238,7 +234,7 @@ runMigration :: ClientEnv
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml = runExceptT $ do
   adminAddress <- createAdmin env admin
-  liftIO $ print "Admin created! Deploying Contracts"
+  liftIO $ print ("Admin created! Deploying Contracts" :: String)
   cs <- deployContracts env admin adminAddress contractYaml
-  liftIO $ print "Successfully Depployed Contracts"
+  liftIO $ print ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress cs
