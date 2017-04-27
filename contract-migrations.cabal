@@ -24,13 +24,12 @@ library
                      , errors
                      , filemanip 
                      , lens
-                     , monad-logger
                      , mtl
                      , servant-client
                      , text
                      , yaml
   default-language:    Haskell2010
-  ghc-options: -Wall
+  ghc-options:       -Wall
 
 executable contract-migrations-exe
   hs-source-dirs:      app

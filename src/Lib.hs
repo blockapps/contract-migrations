@@ -15,13 +15,12 @@ import           BlockApps.Bloc.API.Users
 import           BlockApps.Bloc.API.Utils
 import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
-import           BlockApps.Ethereum       (Address, Gas (..), Wei (..))
+import           BlockApps.Ethereum       (Address)
 import           Control.Error
-import           Control.Lens             (mapMOf, (&), (^.))
+import           Control.Lens             (mapMOf, (^.))
 import           Control.Lens.TH          (makeLenses)
 import           Control.Monad            (forM)
 import           Control.Monad.Except
-import           Control.Monad.IO.Class
 import           Data.Bifunctor           (first)
 import           Data.Map.Strict          (Map)
 import           Data.Monoid              ((<>))
@@ -96,6 +95,7 @@ instance FromJSON (ContractForUpload 'AsFilename) where
                       <*> o .:? "args"
                       <*> o .:? "txParams"
                       <*> o .:? "value"
+  parseJSON v = fail $ "Needed an object, found: " ++ show v
 
 -- | This looks for any directory that contains a file with a
 -- name that containse 'filename', but errors out if there are
