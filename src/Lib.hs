@@ -20,8 +20,8 @@ import           Control.Error
 import           Control.Lens             (mapMOf, (&), (^.))
 import           Control.Lens.TH          (makeLenses)
 import           Control.Monad            (forM)
+import           Control.Monad.Except
 import           Control.Monad.IO.Class
-import           Control.Monad.Logger     (MonadLogger, logErrorN, logInfoN)
 import           Data.Bifunctor           (first)
 import           Data.Map.Strict          (Map)
 import           Data.Monoid              ((<>))
@@ -38,6 +38,7 @@ import           System.FilePath.Find     (always, contains, find)
 
 data MigrationError = ParseError Text
                     | BlocError Text
+                    | FindContractError Text
                     deriving (Show)
 
 --------------------------------------------------------------------------------
@@ -53,11 +54,14 @@ makeLenses ''AdminConfig
 
 createAdmin :: ClientEnv
             -> AdminConfig
-            -> IO (Either MigrationError Address)
-createAdmin clientEnv admin = do
-  let postUsersUserRequest = PostUsersUserRequest (admin^.adminFaucet) (admin^.adminPassword)
-  eAddr <- runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
-  return $ first (BlocError . T.pack . show) eAddr
+            -> ExceptT MigrationError IO Address
+createAdmin clientEnv admin =
+    let postUsersUserRequest = PostUsersUserRequest (admin^.adminFaucet) (admin^.adminPassword)
+    in ExceptT $ fmap (first message) $
+         runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
+  where
+    message :: ServantError -> MigrationError
+    message = BlocError . T.pack . show
 
 --------------------------------------------------------------------------------
 -- | Parsing Yaml files for Contract info
@@ -93,14 +97,22 @@ instance FromJSON (ContractForUpload 'AsFilename) where
                       <*> o .:? "txParams"
                       <*> o .:? "value"
 
-grabSourceCode :: FilePath -> String -> IO Text
+-- | This looks for any directory that contains a file with a
+-- name that containse 'filename', but errors out if there are
+-- none or more thatn one.
+grabSourceCode :: FilePath -> String -> ExceptT MigrationError IO Text
 grabSourceCode path filename = do
-  matches <- find always (contains filename) path
+  matches <- liftIO $ find always (contains filename) path
   case matches of
-    [fp] -> T.readFile (fp ++ "/" ++ filename)
-    _    -> error $ "more than one match for: " ++ filename
+    [] -> throwError . FindContractError $
+            "No Contracts matching filname: " <> T.pack filename
+    [fp] -> liftIO $ T.readFile (fp ++ "/" ++ filename)
+    _    -> throwError . FindContractError $
+              "more than one match for: " <> T.pack filename
 
-withSourceCode :: ContractForUpload 'AsFilename -> IO (ContractForUpload 'AsCode)
+-- | replace the contract source file with the source code in Text form.
+withSourceCode :: ContractForUpload 'AsFilename
+               -> ExceptT MigrationError IO (ContractForUpload 'AsCode)
 withSourceCode = mapMOf contractUploadSource (grabSourceCode ".")
 
 --------------------------------------------------------------------------------
@@ -113,47 +125,42 @@ data Contract =
            } deriving (Eq, Show)
 makeLenses ''Contract
 
-deployContract :: (MonadIO m, MonadLogger m)
-               => ClientEnv
+-- |  deploys a contract.
+deployContract ::  ClientEnv
                -> AdminConfig
                -> Address -- ^ the admin's address
-               -> ContractForUpload 'AsFilename
-               -> m (Either MigrationError Address)
-deployContract env admin adminAddr contract = do
-  contract' <- liftIO $ withSourceCode contract
+               -> ContractForUpload 'AsCode
+               -> ExceptT MigrationError IO Address
+deployContract env admin adminAddr contract =
   let req = PostUsersContractRequest
-        { postuserscontractrequestSrc = contract'^.contractUploadSource
+        { postuserscontractrequestSrc = contract^.contractUploadSource
         , postuserscontractrequestPassword = admin^.adminPassword
-        , postuserscontractrequestContract = contract'^.contractUploadName
-        , postuserscontractrequestArgs = contract'^.contractUploadInitialArgs
-        , postuserscontractrequestTxParams = contract'^.contractUploadTxParams
-        , postuserscontractrequestValue = contract'^.contractUploadNonce
+        , postuserscontractrequestContract = contract^.contractUploadName
+        , postuserscontractrequestArgs = contract^.contractUploadInitialArgs
+        , postuserscontractrequestTxParams = contract^.contractUploadTxParams
+        , postuserscontractrequestValue = contract^.contractUploadNonce
         }
-  eAddr <- liftIO $ runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr req) env
-  case eAddr of
-    Left e -> do
-      let message = mconcat [ "Failed to deploy -- ["
-                            , contract ^. contractUploadName
-                            , "]-- " <> T.pack (show e)
-                            ]
-      _ <- logErrorN message
-      return . Left . BlocError . T.pack . show $ e
-    Right addr -> do
-      _ <- logInfoN $ "Successfully deployed " <> contract ^. contractUploadName
-      return . Right $ addr
+  in ExceptT $ fmap (first message) $
+    runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr req) env
+  where
+    message :: ServantError -> MigrationError
+    message e = BlocError $ mconcat [ "Failed to deploy -- ["
+                                    , contract ^. contractUploadName
+                                    , "]-- " <> T.pack (show e)
+                                    ]
 
-deployContracts :: (MonadIO m, MonadLogger m)
-                => ClientEnv
+deployContracts :: ClientEnv
                 -> AdminConfig
                 -> Address -- ^ ownerAddress
                 -> FilePath -- ^ location of contracts.yaml
-                -> m (Either MigrationError [Contract])
+                -> ExceptT MigrationError IO [Contract]
 deployContracts env admin ownerAddr contractYaml = do
   ecs <- liftIO $ Y.decodeFileEither contractYaml
   case ecs of
-    Left e -> return . Left . ParseError . T.pack . show $ e
-    Right cs -> runExceptT . forM cs $ \c -> do
-      addr <- ExceptT $ deployContract env admin ownerAddr c
+    Left e -> throwError . ParseError . T.pack . show $ e
+    Right cs -> forM cs $ \c -> do
+      c' <- withSourceCode c
+      addr <- deployContract env admin ownerAddr c'
       return $ Contract (c^.contractUploadName) addr
 
 --------------------------------------------------------------------------------
@@ -166,15 +173,11 @@ data MigrationResult =
                   } deriving (Eq, Show)
 makeLenses ''MigrationResult
 
-runMigration :: (MonadIO m, MonadLogger m)
-             => ClientEnv
+runMigration :: ClientEnv
              -> AdminConfig
              -> FilePath -- ^ location of contracts.yaml
-             -> m (Either MigrationError MigrationResult)
-runMigration env admin contractYaml = do
-  eUserAddress <- liftIO $ createAdmin env admin
-  case eUserAddress of
-      (Left e) -> (logErrorN $ T.pack (show e)) >> undefined
-      (Right adminAddr) -> runExceptT $ do
-        cs <- ExceptT $ deployContracts env admin adminAddr contractYaml
-        return $ MigrationResult adminAddr cs
+             -> IO (Either MigrationError MigrationResult)
+runMigration env admin contractYaml = runExceptT $ do
+  adminAddress <- createAdmin env admin
+  cs <- deployContracts env admin adminAddress contractYaml
+  return $ MigrationResult adminAddress cs

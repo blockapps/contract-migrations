@@ -5,6 +5,7 @@
 
 module Data.ParserSpec (spec) where
 
+import           Control.Error
 import           BlockApps.Bloc.API
 import           BlockApps.Ethereum
 import           Control.Lens
@@ -31,10 +32,10 @@ yamlSpec = do
     it "can read and replace sourcode" $ do
       let Right cs :: Either ParseException [ContractForUpload 'AsFilename] = decodeEither' contractYaml
       raw1 <- T.readFile "contracts/Modifiers/Owned.sol"
-      c1 <- withSourceCode $ cs !! 0
+      Right c1 <- runExceptT . withSourceCode $ cs !! 0
       raw1 `shouldBe` c1 ^. contractUploadSource
       raw2 <- T.readFile "contracts/IdentityAccessManager.sol"
-      c2 <- withSourceCode $ cs !! 1
+      Right c2 <- runExceptT . withSourceCode $ cs !! 1
       raw2 `shouldBe` c2 ^. contractUploadSource
 
 --------------------------------------------------------------------------------

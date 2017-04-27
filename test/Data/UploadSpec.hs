@@ -10,9 +10,9 @@ import           BlockApps.Ethereum
 import           Control.Concurrent
 import           Control.Monad.Logger
 
+import           Control.Error
 import           Control.Lens
 import           Data.ByteString
-import           Data.Either
 import qualified Data.Map.Strict                as Map
 import           Data.Text
 import qualified Data.Text.IO                   as T
@@ -42,7 +42,7 @@ adminSpec = do
     around (testWithApplication . return $ mockBloc) $ do
       it "can make an admin user" $ \port -> do
         bloc <- mockBlocClient port
-        eAddr <- createAdmin bloc adminConfig
+        eAddr <- runExceptT $ createAdmin bloc adminConfig
         eAddr `shouldSatisfy` isRight
 
 uploadSpec :: Spec
@@ -51,15 +51,14 @@ uploadSpec = do
     around (testWithApplication . return $ mockBloc) $ do
       it "can upload a single contract" $ \port -> do
         bloc <- mockBlocClient port
-        Right addr <- createAdmin bloc adminConfig
-        cAddr <- (runStderrLoggingT $ deployContract bloc adminConfig addr exampleUpload)
+        Right addr <- runExceptT $ createAdmin bloc adminConfig
+        cAddr <- runExceptT (deployContract bloc adminConfig addr =<< exampleUpload')
         cAddr `shouldSatisfy` isRight
       it "can upload a many contracts" $ \port -> do
         bloc <- mockBlocClient port
-        Right addr <- createAdmin bloc adminConfig
-        Right newCs <- (runStderrLoggingT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml")
+        Right addr <- runExceptT $ createAdmin bloc adminConfig
+        Right newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml")
         (newCs !! 1) ^. contractName  `shouldBe` "IdentityAccessManager"
-
 
 --------------------------------------------------------------------------------
 -- utils
@@ -88,3 +87,6 @@ exampleUpload = ContractForUpload
   , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
   , _contractUploadNonce = Just 10
   }
+
+exampleUpload' :: ExceptT MigrationError IO (ContractForUpload 'AsCode)
+exampleUpload' = withSourceCode exampleUpload
