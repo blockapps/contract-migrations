@@ -1,0 +1,40 @@
+resolver: lts-8.12
+
+packages:
+- '.'
+- location: 
+    git: https://github.com/blockapps/blockapps-haskell 
+    commit: aed434643a1b81fb32c23e45cda9ca884cfe41ab
+  extra-dep: true
+  subdirs:
+  - bloc/api
+  - bloc/client
+  - ethereum
+  - solidity
+  - strato/api
+
+- location:
+    git: https://github.com/echatav/secp256k1-haskell/
+    commit: c27236f93ba2af4da0865558e2dedf2d8643cd8c
+  extra-dep: true
+- location:
+    git: https://github.com/echatav/servant-aeson-specs/
+    commit: cedbf002b0d5855c17dc91de97e966ee339604fa
+  extra-dep: true
+- location:
+    git: https://github.com/echatav/largeint/
+    commit: 8cce2055e9ffffc89cb1ea2b507f837ff9d1f985
+  extra-dep: true
+- location:
+    git: https://github.com/iostat/relapse
+    commit: 2b25839d1b75508301adde293b8c6ef8591ef00a
+  extra-dep: true
+
+extra-deps:
+  - relapse-1.0.0.0
+  - saltine-0.0.0.4
+  - hspec-expectations-lifted-0.10.0
+
+flags: {}
+
+extra-package-dbs: []

@@ -1,0 +1,4 @@
+- name: Owned
+  file: Owned.sol
+- name: IdentityAccessManager
+  file: IdentityAccessManager.sol
