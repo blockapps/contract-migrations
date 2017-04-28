@@ -44,7 +44,7 @@ contract Base {
 
 import ../Abstract/Base.sol
 
-contract Simple {
+contract Simple is Base {
 ...
 }
 ```
@@ -69,7 +69,7 @@ uploaded to `Bloc` with the args specified in the yaml file.
 contract Base {
 ...
 }
-contract Simple {
+contract Simple is Base {
 ...
 }
 ```
