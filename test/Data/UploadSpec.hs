@@ -57,8 +57,7 @@ uploadSpec = do
       it "can upload a many contracts" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml")
-        print $ newCs
+        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts")
         let (Right newCs') = newCs
         (newCs' !! 0) ^. contractName  `shouldBe` "IdentityAccessManager"
 
@@ -91,4 +90,4 @@ exampleUpload = ContractForUpload
   }
 
 exampleUpload' :: ExceptT MigrationError IO (ContractForUpload 'AsCode)
-exampleUpload' = withSourceCode exampleUpload
+exampleUpload' = withSourceCode "./contracts" exampleUpload
