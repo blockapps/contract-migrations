@@ -35,9 +35,7 @@ importParserSpec = do
   describe "can parse import statements" $ do
     it "can parse a single import statement" $ do
       let res = readP_to_S importsParser "import \"../Thing/Contract.sol\";"
-      print res
-      L.length res `shouldBe` 1
-      (fst . head . reverse $ res) `shouldBe` "Contract.sol"
+      (fst . head $ res) `shouldBe` "Contract.sol"
 
 yamlSpec :: Spec
 yamlSpec = do

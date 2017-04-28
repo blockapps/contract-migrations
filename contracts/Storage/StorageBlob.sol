@@ -1,5 +1,5 @@
-import ../Modifiers/Owned.sol
-import ../Modifiers/ReadPermissioned.sol
+import "../Modifiers/Owned.sol";
+import "../Modifiers/ReadPermissioned.sol";
 
 contract StorageBlob is ReadPermissioned {
   

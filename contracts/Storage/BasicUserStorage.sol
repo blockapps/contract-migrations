@@ -1,5 +1,5 @@
-import ./StorageBlob.sol
-import ../Modifiers/Owned.sol
+import "./StorageBlob.sol";
+import "../Modifiers/Owned.sol";
 
 contract BasicUserStorage is Owned {
 

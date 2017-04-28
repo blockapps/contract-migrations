@@ -1,4 +1,4 @@
-import ./Owned.sol
+import "./Owned.sol";
 
 contract ReadPermissioned is Owned {
 

@@ -128,11 +128,13 @@ isImportStatement = T.isPrefixOf "import"
 
 importsParser :: ReadP String
 importsParser = fmap last $ do
-   skipMany (satisfy (/= '"'))
+   _ <- void $ string "import"
+   _ <- skipSpaces
    between quoter quoter $
-     sepBy1 (munch1 (not . flip elem ("/;" :: String))) (char '/')
+     sepBy1 (many1 (satisfy (/= ';'))) (char '/')
   where
     quoter = satisfy (flip elem ("'\"" :: String))
+
 -- | get all the dependencies for a solidity file.
 grabImports :: Text -> ExceptT MigrationError IO [FilePath]
 grabImports sourceCode =
@@ -140,8 +142,10 @@ grabImports sourceCode =
         importStrings = map T.unpack $ takeWhile isImportStatement ls
     in forM importStrings $ \importString -> do
          case readP_to_S importsParser importString of
-           [(imp,_)] -> return imp
-           _ -> throwError . ParseError $ "Could not parse import statement: " <>
+           ((imp,_) : _) -> return imp
+           other -> do
+             liftIO $ print other
+             throwError . ParseError $ "Could not parse import statement: " <>
                    T.pack importString
 
 type DependencyGraph = (G.Graph, G.Vertex -> (FilePath, FilePath, [FilePath]), FilePath -> Maybe G.Vertex)

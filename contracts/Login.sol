@@ -1,4 +1,4 @@
-import ./Modifiers/Owned.sol
+import "./Modifiers/Owned.sol";
 
 contract Login is Owned {
   mapping (address => uint) public lastLogins;
