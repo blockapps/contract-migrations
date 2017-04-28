@@ -112,10 +112,10 @@ findUniqueFile path filename = do
   matches <- liftIO $ find always (contains filename) path
   case matches of
     [] -> throwError . FindContractError $
-            "No Contracts matching filname: " <> T.pack filename
+            "No Contracts matching filname: " <> T.pack filename <> " in " <> T.pack path
     [fp] -> return $ fp <> "/" <> filename
     _    -> throwError . FindContractError $
-              "more than one match for: " <> T.pack filename
+              "more than one match for: " <> T.pack filename <> " in " <> T.pack path
 
 -- | searches for a file and grabs the source code.
 grabSourceCode :: FilePath
