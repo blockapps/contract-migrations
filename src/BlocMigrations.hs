@@ -145,8 +145,9 @@ makeLenses ''GraphState
 -- that in any contracts project, there every contract filename is unique.
 grabDependencyGraph :: FilePath
                     -> [FilePath]
+                    -> FilePath -- root contracts directory
                     -> ExceptT MigrationError IO DependencyGraph
-grabDependencyGraph _main fps = do
+grabDependencyGraph _main fps contractsDir = do
     let initState = GraphState (Map.singleton _main (S.fromList fps)) (S.singleton _main)
     GraphState edges _ <- execStateT (grabDependencyGraph' fps) initState
     return . G.graphFromEdges . map (\(k,ns) -> (k, k, S.toList ns)) $ Map.toList edges
@@ -166,7 +167,7 @@ grabDependencyGraph _main fps = do
           grabDependencyGraph' nextVertices
     grabNeighbors :: FilePath -> ExceptT MigrationError IO (FilePath, S.Set FilePath)
     grabNeighbors filepath = do
-      nbrs <- grabSourceCode "." filepath >>= return . grabImports
+      nbrs <- grabSourceCode contractsDir filepath >>= return . grabImports
       return (filepath, S.fromList nbrs)
     addEdges :: (FilePath, S.Set FilePath) -> Map FilePath (S.Set FilePath) -> Map FilePath (S.Set FilePath)
     addEdges (v, ns) m = case Map.lookup v m of
@@ -174,9 +175,9 @@ grabDependencyGraph _main fps = do
       Just ns' -> Map.insert v (ns `S.union` ns') m
 
 -- | Collect all the source code for a list of filenames.
-readAndTrimFiles :: [FilePath] -> ExceptT MigrationError IO Text
-readAndTrimFiles fps = do
-    sources <- traverse (findUniqueFile "." >=>  fmap trimDependencies . liftIO . T.readFile) fps
+readAndTrimFiles :: [FilePath] -> FilePath -> ExceptT MigrationError IO Text
+readAndTrimFiles fps contractsDir = do
+    sources <- traverse (findUniqueFile contractsDir >=>  fmap trimDependencies . liftIO . T.readFile) fps
     return . T.unlines . map T.strip $ sources
 
 trimDependencies :: Text -> Text
@@ -193,11 +194,11 @@ withSourceCode contractsDir c = do
     [] -> return $ c & contractUploadSource .~ sourceCode
     ds -> do
       let _main = c^.contractUploadSource
-      g <- grabDependencyGraph _main ds
+      g <- grabDependencyGraph _main ds contractsDir
       let orderedFileIndices = (G.topSort (g^._1))
           vertexMapping = g^._2
           orderedFiles = reverse $ map (\v -> (vertexMapping v) ^._1) orderedFileIndices
-      fullSource <- readAndTrimFiles orderedFiles
+      fullSource <- readAndTrimFiles orderedFiles contractsDir
       return $ c & contractUploadSource .~ fullSource
 
 --------------------------------------------------------------------------------
