@@ -22,6 +22,7 @@ import           Test.Hspec
 import           Text.RawString.QQ
 import           Text.ParserCombinators.ReadP
 import           BlocMigrations
+import           BlockApps.Solidity.ArgValue
 
 spec :: Spec
 spec = do
@@ -83,8 +84,8 @@ contractYaml = [r|
 - name: Owned
   file: Owned.sol
   args:
-    name: Bob
-    age: '23'
+    name: "Bob"
+    age: 23
   txParams:
     gasLimit: 1
     gasPrice: 2
@@ -102,7 +103,7 @@ exampleList = [ex1, ex2]
     ex1 = ContractForUpload
       { _contractUploadName = "Owned"
       , _contractUploadSource = "Owned.sol"
-      , _contractUploadInitialArgs = Just $ Map.fromList [("name", "Bob") , ("age", "23")]
+      , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
       , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
       , _contractUploadNonce = Just 10
       }

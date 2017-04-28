@@ -20,6 +20,7 @@ library
                      , blockapps-ethereum
                      , blockapps-bloc-api
                      , blockapps-bloc-client
+                     , blockapps-solidity
                      , containers
                      , errors
                      , filemanip 
@@ -40,6 +41,7 @@ test-suite contract-migrations-test
   build-depends:       base
                      , blockapps-bloc-api
                      , blockapps-ethereum
+                     , blockapps-solidity
                      , bytestring
                      , containers
                      , errors

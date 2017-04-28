@@ -4,7 +4,7 @@ packages:
 - '.'
 - location: 
     git: https://github.com/blockapps/blockapps-haskell 
-    commit: aed434643a1b81fb32c23e45cda9ca884cfe41ab
+    commit: a1329e7fdcfaeaa6129a78da20d0ec1cce022e5d
   extra-dep: true
   subdirs:
   - bloc/api
@@ -16,10 +16,6 @@ packages:
 - location:
     git: https://github.com/echatav/secp256k1-haskell/
     commit: c27236f93ba2af4da0865558e2dedf2d8643cd8c
-  extra-dep: true
-- location:
-    git: https://github.com/echatav/servant-aeson-specs/
-    commit: cedbf002b0d5855c17dc91de97e966ee339604fa
   extra-dep: true
 - location:
     git: https://github.com/echatav/largeint/

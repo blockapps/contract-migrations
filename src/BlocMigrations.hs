@@ -13,6 +13,7 @@ module BlocMigrations where
 
 import           BlockApps.Bloc.API.Users
 import           BlockApps.Bloc.API.Utils
+import           BlockApps.Solidity.ArgValue
 import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
 import           BlockApps.Ethereum       (Address)
@@ -37,6 +38,7 @@ import qualified Data.Yaml                as Y
 import           Numeric.Natural
 import           Servant.Client
 import           System.FilePath.Find     (always, contains, find)
+
 import           Text.ParserCombinators.ReadP
 --------------------------------------------------------------------------------
 
@@ -83,7 +85,7 @@ data ContractForUpload s =
   ContractForUpload
     { _contractUploadName        :: Text
     , _contractUploadSource      :: SourceType s
-    , _contractUploadInitialArgs :: Maybe (Map Text Text)
+    , _contractUploadInitialArgs :: Maybe (Map Text ArgValue)
     , _contractUploadTxParams    :: Maybe TxParams
     , _contractUploadNonce       :: Maybe Natural
     }
@@ -221,7 +223,7 @@ withSourceCode contractsDir c = do
 --------------------------------------------------------------------------------
 
 data Contract =
-  Contract { _contractName    :: Text
+  Contract { _contractName    :: ContractName
            , _contractAddress :: Address
            } deriving (Eq, Show)
 makeLenses ''Contract
@@ -271,7 +273,7 @@ deployContracts env admin ownerAddr contractYaml contractsDir = do
     Right cs -> forM cs $ \c -> do
       c' <- withSourceCode contractsDir c
       addr <- deployContract env admin ownerAddr c'
-      return $ Contract (c^.contractUploadName) addr
+      return $ Contract (ContractName (c^.contractUploadName)) addr
 
 --------------------------------------------------------------------------------
 -- | Run the migration
