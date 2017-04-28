@@ -20,7 +20,7 @@ import           Data.Yaml
 import           Test.Hspec
 import           Text.RawString.QQ
 
-import           Lib
+import           BlocMigrations
 
 spec :: Spec
 spec = do

@@ -28,7 +28,7 @@ import           Servant.Client
 import           Servant.Mock
 import           System.IO.Unsafe               (unsafePerformIO)
 
-import           Lib
+import           BlocMigrations
 
 
 spec :: Spec
