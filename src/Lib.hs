@@ -17,15 +17,16 @@ import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
 import           BlockApps.Ethereum       (Address)
 import           Control.Error
-import           Control.Lens             (mapMOf, (^.), (&), (.~))
+import           Control.Lens             ((&), (.~), (^.), _1, _2, (.=), use, (%=))
 import           Control.Lens.TH          (makeLenses)
 import           Control.Monad            (forM)
 import           Control.Monad.Except
 import           Control.Monad.State.Lazy
 import           Data.Bifunctor           (first)
-import           Data.Foldable            (traverse_)
-import           Data.List                (dropWhile, last, takeWhile)
+import qualified Data.Graph               as G
+import           Data.List                (dropWhile, last, takeWhile, reverse)
 import           Data.Map.Strict          (Map)
+import qualified Data.Map.Strict as Map
 import           Data.Monoid              ((<>))
 import qualified Data.Set                 as S
 import           Data.Text                (Text)
@@ -60,11 +61,8 @@ createAdmin :: ClientEnv
             -> ExceptT MigrationError IO Address
 createAdmin clientEnv admin =
     let postUsersUserRequest = PostUsersUserRequest (admin^.adminFaucet) (admin^.adminPassword)
-    in do
-      addr <- ExceptT $ fmap (first message) $
-           runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
-      liftIO $ print addr
-      return addr
+    in ExceptT $ fmap (first message) $
+         runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
   where
     message :: ServantError -> MigrationError
     message = BlocError . T.pack . show
@@ -135,21 +133,44 @@ grabImports sourceCode =
       imports = takeWhile isImportStatement ls
   in map (T.unpack . last . T.split ( == '/')) imports
 
+type DependencyGraph = (G.Graph, G.Vertex -> (FilePath, FilePath, [FilePath]), FilePath -> Maybe G.Vertex)
+
+data GraphState =
+  GraphState { _edgeSet :: Map FilePath (S.Set FilePath)
+             , _visitedVertices :: S.Set FilePath
+             }
+makeLenses ''GraphState
+
 -- | get the filename of every other contract that this contract depends on
-grabDependencySet :: FilePath
-                  -> ExceptT MigrationError IO (S.Set FilePath)
-grabDependencySet fp = execStateT (grabDependencySet' fp) S.empty
+grabDependencyGraph :: FilePath
+                    -> [FilePath]
+                    -> ExceptT MigrationError IO DependencyGraph
+grabDependencyGraph _main fps = do
+    let initState = GraphState (Map.singleton _main (S.fromList fps)) (S.singleton _main)
+    GraphState edges _ <- execStateT (grabDependencyGraph' fps) initState
+    return . G.graphFromEdges . map (\(k,ns) -> (k, k, S.toList ns)) $ Map.toList edges
   where
-    grabDependencySet' :: FilePath -> StateT (S.Set FilePath) (ExceptT MigrationError IO) ()
-    grabDependencySet' fp = do
-      sourceCode <- lift $ grabSourceCode "." fp
-      let imps = grabImports sourceCode
-      seen <- get
-      let new = filter (not . flip S.member seen) imps
-      _ <- modify (<> S.fromList imps)
-      case new of
+    grabDependencyGraph' :: [FilePath]
+                         -> StateT GraphState (ExceptT MigrationError IO) ()
+    grabDependencyGraph' filepaths = do
+      nbrs <- lift $ traverse grabNeighbors filepaths
+      edgeSet %= \known -> foldr addEdges known nbrs
+      visited <- use visitedVertices
+      let visited' = foldr S.insert visited (map fst nbrs)
+          nextVertices = S.toList $ S.unions (map snd nbrs) `S.difference` visited'
+      case nextVertices of
         [] -> return ()
-        ds -> traverse_ grabDependencySet' ds
+        _ -> do
+          visitedVertices .= visited'
+          grabDependencyGraph' nextVertices
+    grabNeighbors :: FilePath -> ExceptT MigrationError IO (FilePath, S.Set FilePath)
+    grabNeighbors filepath = do
+      nbrs <- grabSourceCode "." filepath >>= return . grabImports
+      return (filepath, S.fromList nbrs)
+    addEdges :: (FilePath, S.Set FilePath) -> Map FilePath (S.Set FilePath) -> Map FilePath (S.Set FilePath)
+    addEdges (v, ns) m = case Map.lookup v m of
+      Nothing -> Map.insert v ns m
+      Just ns' -> Map.insert v (ns `S.union` ns') m
 
 -- | Collect all the source code for a list of filenames.
 readAndTrimFiles :: [FilePath] -> ExceptT MigrationError IO Text
@@ -169,9 +190,13 @@ withSourceCode c = do
   case deps of
     [] -> return $ c & contractUploadSource .~ sourceCode
     ds -> do
-      subDeps <- fmap mconcat $ traverse grabDependencySet ds
-      fullSource <- readAndTrimFiles (S.toList $ S.fromList deps <> subDeps)
-      return $ c & contractUploadSource .~ T.unlines [trimDependencies sourceCode, fullSource]
+      let _main = c^.contractUploadSource
+      g <- grabDependencyGraph _main ds
+      let orderedFileIndices = (G.topSort (g^._1))
+          vertexMapping = g^._2
+          orderedFiles = reverse $ map (\v -> (vertexMapping v) ^._1) orderedFileIndices
+      fullSource <- readAndTrimFiles orderedFiles
+      return $ c & contractUploadSource .~ fullSource
 
 --------------------------------------------------------------------------------
 -- | Deploy Contracts
@@ -238,7 +263,7 @@ runMigration :: ClientEnv
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml = runExceptT $ do
   adminAddress <- createAdmin env admin
-  liftIO $ print "Admin created! Deploying Contracts"
+  liftIO $ print ("Admin created! Deploying Contracts" :: String)
   cs <- deployContracts env admin adminAddress contractYaml
-  liftIO $ print "Successfully Depployed Contracts"
+  liftIO $ print ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress cs
