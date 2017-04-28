@@ -267,6 +267,8 @@ data MigrationResult =
                   } deriving (Eq, Show)
 makeLenses ''MigrationResult
 
+-- | This will create the admin user and deploy all the contracts,
+-- returning the summary in the MigrationResult
 runMigration :: ClientEnv
              -> AdminConfig
              -> FilePath -- ^ location of contracts.yaml
