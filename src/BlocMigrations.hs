@@ -37,7 +37,7 @@ import qualified Data.Yaml                as Y
 import           Numeric.Natural
 import           Servant.Client
 import           System.FilePath.Find     (always, contains, find)
-
+import           Text.ParserCombinators.ReadP
 --------------------------------------------------------------------------------
 
 data MigrationError = ParseError Text
@@ -126,12 +126,23 @@ grabSourceCode path filename = findUniqueFile path filename >>= liftIO . T.readF
 isImportStatement :: Text -> Bool
 isImportStatement = T.isPrefixOf "import"
 
+importsParser :: ReadP String
+importsParser = fmap last $ do
+   skipMany (satisfy (/= '"'))
+   between quoter quoter $
+     sepBy1 (munch1 (not . flip elem ("/;" :: String))) (char '/')
+  where
+    quoter = satisfy (flip elem ("'\"" :: String))
 -- | get all the dependencies for a solidity file.
-grabImports :: Text -> [FilePath]
+grabImports :: Text -> ExceptT MigrationError IO [FilePath]
 grabImports sourceCode =
-  let ls = T.lines sourceCode
-      imports = takeWhile isImportStatement ls
-  in map (T.unpack . last . T.split ( == '/')) imports
+    let ls = T.lines sourceCode
+        importStrings = map T.unpack $ takeWhile isImportStatement ls
+    in forM importStrings $ \importString -> do
+         case readP_to_S importsParser importString of
+           [(imp,_)] -> return imp
+           _ -> throwError . ParseError $ "Could not parse import statement: " <>
+                   T.pack importString
 
 type DependencyGraph = (G.Graph, G.Vertex -> (FilePath, FilePath, [FilePath]), FilePath -> Maybe G.Vertex)
 
@@ -167,7 +178,7 @@ grabDependencyGraph _main fps contractsDir = do
           grabDependencyGraph' nextVertices
     grabNeighbors :: FilePath -> ExceptT MigrationError IO (FilePath, S.Set FilePath)
     grabNeighbors filepath = do
-      nbrs <- grabSourceCode contractsDir filepath >>= return . grabImports
+      nbrs <- grabSourceCode contractsDir filepath >>= grabImports
       return (filepath, S.fromList nbrs)
     addEdges :: (FilePath, S.Set FilePath) -> Map FilePath (S.Set FilePath) -> Map FilePath (S.Set FilePath)
     addEdges (v, ns) m = case Map.lookup v m of
@@ -189,7 +200,7 @@ withSourceCode :: FilePath -- ^ contracts dir
                -> ExceptT MigrationError IO (ContractForUpload 'AsCode)
 withSourceCode contractsDir c = do
   sourceCode <- grabSourceCode contractsDir $ c^.contractUploadSource
-  let deps = grabImports sourceCode
+  deps <- grabImports sourceCode
   case deps of
     [] -> return $ c & contractUploadSource .~ sourceCode
     ds -> do

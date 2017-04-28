@@ -20,13 +20,24 @@ import qualified Data.Text.IO       as T
 import           Data.Yaml
 import           Test.Hspec
 import           Text.RawString.QQ
-
+import           Text.ParserCombinators.ReadP
 import           BlocMigrations
 
 spec :: Spec
 spec = do
+  importParserSpec
   yamlSpec
   fileParserSpec
+
+
+importParserSpec :: Spec
+importParserSpec = do
+  describe "can parse import statements" $ do
+    it "can parse a single import statement" $ do
+      let res = readP_to_S importsParser "import \"../Thing/Contract.sol\";"
+      print res
+      L.length res `shouldBe` 1
+      (fst . head . reverse $ res) `shouldBe` "Contract.sol"
 
 yamlSpec :: Spec
 yamlSpec = do
@@ -48,18 +59,19 @@ fileParserSpec = do
   describe "it can gather and files into blob based on imports" $ do
     it "can find import statements" $ do
       Right code <- runExceptT $ grabSourceCode "." "Simple.Sol"
-      (L.length . grabImports $ code) `shouldBe` 4
+      Right len <- runExceptT $ fmap L.length $  grabImports code
+      len `shouldBe` 4
     it "can grab a dependency set with the right size" $ do
-      Right imps <- runExceptT $ grabSourceCode "." "Simple.Sol" >>= return . grabImports
-      Right (g, _, _) <- runExceptT $ grabDependencyGraph "Simple.Sol" imps
+      Right imps <- runExceptT $ grabSourceCode "." "Simple.Sol" >>= grabImports
+      Right (g, _, _) <- runExceptT $ grabDependencyGraph "Simple.Sol" imps "."
       (L.length . G.vertices $ g) `shouldBe` 8
     it "can properly trim off imports of one file" $ do
-      Right t <- runExceptT . fmap T.strip . readAndTrimFiles $ ["Simple.Sol"]
+      Right t <- runExceptT . fmap T.strip $ readAndTrimFiles ["Simple.Sol"] "."
       t' <- fmap T.strip $ T.readFile "./contracts/SimpleTrimmed.sol"
       T.strip t `shouldBe` T.strip t'
     it "can properly read, trim, and concat two files" $ do
-      Right output <- runExceptT . fmap T.strip . readAndTrimFiles $
-        ["Simple.Sol", "IdentityAccessManager.sol"]
+      Right output <- runExceptT . fmap T.strip $ readAndTrimFiles
+        ["Simple.Sol", "IdentityAccessManager.sol"] "."
       t <- T.readFile "./contracts/Simple.sol"
       t' <- T.readFile "./contracts/IdentityAccessManager.sol"
       T.strip output `shouldBe` (T.strip . T.unlines . map (T.strip . trimDependencies) $ [t,t'])
