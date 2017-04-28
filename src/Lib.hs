@@ -17,16 +17,17 @@ import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
 import           BlockApps.Ethereum       (Address)
 import           Control.Error
-import           Control.Lens             ((&), (.~), (^.), _1, _2, (.=), use, (%=))
+import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1,
+                                           _2)
 import           Control.Lens.TH          (makeLenses)
 import           Control.Monad            (forM)
 import           Control.Monad.Except
 import           Control.Monad.State.Lazy
 import           Data.Bifunctor           (first)
 import qualified Data.Graph               as G
-import           Data.List                (dropWhile, last, takeWhile, reverse)
+import           Data.List                (dropWhile, last, reverse, takeWhile)
 import           Data.Map.Strict          (Map)
-import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict          as Map
 import           Data.Monoid              ((<>))
 import qualified Data.Set                 as S
 import           Data.Text                (Text)
@@ -136,12 +137,13 @@ grabImports sourceCode =
 type DependencyGraph = (G.Graph, G.Vertex -> (FilePath, FilePath, [FilePath]), FilePath -> Maybe G.Vertex)
 
 data GraphState =
-  GraphState { _edgeSet :: Map FilePath (S.Set FilePath)
+  GraphState { _edgeSet         :: Map FilePath (S.Set FilePath)
              , _visitedVertices :: S.Set FilePath
              }
 makeLenses ''GraphState
 
--- | get the filename of every other contract that this contract depends on
+-- | This get's the dependency graph for the files. Again, it rests on the assumption
+-- that in any contracts project, there every contract filename is unique.
 grabDependencyGraph :: FilePath
                     -> [FilePath]
                     -> ExceptT MigrationError IO DependencyGraph
@@ -169,7 +171,7 @@ grabDependencyGraph _main fps = do
       return (filepath, S.fromList nbrs)
     addEdges :: (FilePath, S.Set FilePath) -> Map FilePath (S.Set FilePath) -> Map FilePath (S.Set FilePath)
     addEdges (v, ns) m = case Map.lookup v m of
-      Nothing -> Map.insert v ns m
+      Nothing  -> Map.insert v ns m
       Just ns' -> Map.insert v (ns `S.union` ns') m
 
 -- | Collect all the source code for a list of filenames.
@@ -182,10 +184,11 @@ trimDependencies :: Text -> Text
 trimDependencies = T.strip . T.unlines . dropWhile isImportStatement . T.lines
 
 -- | replace the contract source file with the source code in Text form.
-withSourceCode :: ContractForUpload 'AsFilename
+withSourceCode :: FilePath -- ^ contracts dir
+               -> ContractForUpload 'AsFilename
                -> ExceptT MigrationError IO (ContractForUpload 'AsCode)
-withSourceCode c = do
-  sourceCode <- grabSourceCode "." $ c^.contractUploadSource
+withSourceCode contractsDir c = do
+  sourceCode <- grabSourceCode contractsDir $ c^.contractUploadSource
   let deps = grabImports sourceCode
   case deps of
     [] -> return $ c & contractUploadSource .~ sourceCode
@@ -223,27 +226,35 @@ deployContract env admin adminAddr contract =
         , postuserscontractrequestTxParams = contract^.contractUploadTxParams
         , postuserscontractrequestValue = contract^.contractUploadNonce
         }
-  in ExceptT $ fmap (first message) $
-    runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr req) env
+  in ExceptT $ do
+       eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr req) env
+       case eresp of
+         Left serr -> do
+           msg <- message serr
+           return . Left $ msg
+         Right success -> return . Right $ success
   where
-    message :: ServantError -> MigrationError
-    message e = BlocError $ mconcat [ "Failed to deploy -- ["
-                                    , contract ^. contractUploadName
-                                    , "]-- " <> T.pack (show e)
-                                    ]
+    message :: ServantError -> IO MigrationError
+    message e = do
+      _ <- liftIO . putStrLn . show $ e
+      return $ BlocError $ mconcat [ "Failed to deploy --a ["
+                                   , contract ^. contractUploadName
+                                   , "]-- "
+                                   ]
 
+-- | deploy all the contracts listed in the contracts.yaml file.
 deployContracts :: ClientEnv
                 -> AdminConfig
                 -> Address -- ^ ownerAddress
                 -> FilePath -- ^ location of contracts.yaml
+                -> FilePath -- ^ contracts dir
                 -> ExceptT MigrationError IO [Contract]
-deployContracts env admin ownerAddr contractYaml = do
+deployContracts env admin ownerAddr contractYaml contractsDir = do
   ecs <- liftIO $ Y.decodeFileEither contractYaml
   case ecs of
     Left e -> throwError . ParseError . T.pack . show $ e
     Right cs -> forM cs $ \c -> do
-      c' <- withSourceCode c
-      liftIO . putStrLn . T.unpack $ c' ^. contractUploadSource
+      c' <- withSourceCode contractsDir c
       addr <- deployContract env admin ownerAddr c'
       return $ Contract (c^.contractUploadName) addr
 
@@ -260,10 +271,11 @@ makeLenses ''MigrationResult
 runMigration :: ClientEnv
              -> AdminConfig
              -> FilePath -- ^ location of contracts.yaml
+             -> FilePath -- ^ localtion of contracts dir
              -> IO (Either MigrationError MigrationResult)
-runMigration env admin contractYaml = runExceptT $ do
+runMigration env admin contractYaml contractsDir = runExceptT $ do
   adminAddress <- createAdmin env admin
   liftIO $ print ("Admin created! Deploying Contracts" :: String)
-  cs <- deployContracts env admin adminAddress contractYaml
+  cs <- deployContracts env admin adminAddress contractYaml contractsDir
   liftIO $ print ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress cs

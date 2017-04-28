@@ -1,2 +1,4 @@
 - name: IdentityAccessManager
   file: IdentityAccessManager.sol
+- name: Simple
+  file: Simple.sol

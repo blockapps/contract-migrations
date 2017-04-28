@@ -22,5 +22,5 @@ main :: IO ()
 main = do
   [yml] <- getArgs
   bloc <- blocClient
-  res <- runMigration bloc adminInfo yml
+  res <- runMigration bloc adminInfo yml "./contracts"
   print res

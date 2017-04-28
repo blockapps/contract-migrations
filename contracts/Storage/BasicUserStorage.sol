@@ -17,15 +17,15 @@ contract BasicUserStorage is Owned {
     user = _user;
   }
 
-  function writeDataToStorage(address author, bytes32[] _tags, string _contents) onlyOwner returns(bytes32 contentsHash) {
-    StorageBlob newBlob = new StorageBlob(user, author, _tags, _contents);
-    userStorage[newBlob.hash()] = newBlob;
-    Stored(user, newBlob.hash(), _tags, _contents);
+  function writeDataToStorage(address _author, bytes32 _hash, bytes32[] _tags, string _contents) onlyOwner returns(bool success) {
+    StorageBlob newBlob = new StorageBlob(user, _author, _hash, _tags, _contents);
+    userStorage[_hash] = newBlob;
+    Stored(user, _hash, _tags, _contents);
     newBlob.addReader(user);
-    newBlob.addReader(author);
+    newBlob.addReader(_author);
     newBlob.addReader(owner);
     newBlob.transfer(owner);
-    return newBlob.hash();
+    return true;
   }
 
   function getStorageBlob(bytes32 _hash) public returns(address) {
