@@ -17,8 +17,7 @@ import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
 import           BlockApps.Ethereum       (Address)
 import           Control.Error
-import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1,
-                                           _2)
+import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1, _2)
 import           Control.Lens.TH          (makeLenses)
 import           Control.Monad            (forM)
 import           Control.Monad.Except
