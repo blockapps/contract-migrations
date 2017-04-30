@@ -16,7 +16,7 @@ import           BlockApps.Bloc.API.Utils
 import           BlockApps.Solidity.ArgValue
 import qualified BlockApps.Bloc.Client    as Bloc
 import           BlockApps.Bloc.Crypto
-import           BlockApps.Ethereum       (Address)
+import           BlockApps.Ethereum       (Address, addressString)
 import           Control.Error
 import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1, _2)
 import           Control.Lens.TH          (makeLenses)
@@ -249,7 +249,10 @@ deployContract env admin adminAddr contract =
          Left serr -> do
            msg <- message serr
            return . Left $ msg
-         Right success -> return . Right $ success
+         Right success -> do
+           liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
+           liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
+           return . Right $ success
   where
     message :: ServantError -> IO MigrationError
     message e = do
@@ -294,7 +297,8 @@ runMigration :: ClientEnv
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml contractsDir = runExceptT $ do
   adminAddress <- createAdmin env admin
-  liftIO $ print ("Admin created! Deploying Contracts" :: String)
+  liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
+  liftIO . print $ ("Deploying Contracts" :: String)
   cs <- deployContracts env admin adminAddress contractYaml contractsDir
   liftIO $ print ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress cs
