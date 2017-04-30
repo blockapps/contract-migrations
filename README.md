@@ -11,8 +11,8 @@ The layout of the `contracts.yaml` file is something like this:
 - name: Owned
   file: Owned.sol
   args:
-    name: Bob
-    age: '23'
+    name: "Bob"
+    age: 23
   txParams:
     gasLimit: 1
     gasPrice: 2
@@ -56,9 +56,9 @@ If your `contracts.yaml` file looks like
 - name: Simple
   file: Simple.sol
   args:
-    owner: Bob
-    age: '25'
-  value: '10'
+    owner: "Bob"
+    age: 25
+  value: 10
 ```
 
 Then when you run `runMigration` specifying the path to `contracts.yaml` and `/contracts`, the following contract will be
