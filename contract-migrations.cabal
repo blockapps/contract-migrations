@@ -18,8 +18,8 @@ library
   exposed-modules:     BlocMigrations
   build-depends:       base >= 4.7 && < 5
                      , blockapps-ethereum
-                     , blockapps-bloc-api
-                     , blockapps-bloc-client
+                     , blockapps-bloc21-api
+                     , blockapps-bloc21-client
                      , blockapps-solidity
                      , containers
                      , errors
@@ -39,7 +39,7 @@ test-suite contract-migrations-test
   other-modules:       Data.ParserSpec
                      , Data.UploadSpec
   build-depends:       base
-                     , blockapps-bloc-api
+                     , blockapps-bloc21-api
                      , blockapps-ethereum
                      , blockapps-solidity
                      , bytestring

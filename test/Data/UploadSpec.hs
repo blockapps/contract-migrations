@@ -5,7 +5,7 @@
 
 module Data.UploadSpec (spec) where
 
-import           BlockApps.Bloc.API
+import           BlockApps.Bloc21.API hiding (mockBloc)
 import           BlockApps.Ethereum
 import           Control.Concurrent
 import           Control.Monad.Logger
@@ -67,7 +67,7 @@ uploadSpec = do
 --------------------------------------------------------------------------------
 
 adminConfig :: AdminConfig
-adminConfig = AdminConfig "Admin" "Password" "666"
+adminConfig = AdminConfig "Admin" "Password" True
 
 mockBlocClient :: Int -> IO ClientEnv
 mockBlocClient port = do

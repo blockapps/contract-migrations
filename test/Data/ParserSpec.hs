@@ -6,7 +6,7 @@
 module Data.ParserSpec (spec) where
 
 import           Control.Error
-import           BlockApps.Bloc.API
+import           BlockApps.Bloc21.API
 import           BlockApps.Ethereum
 import           Control.Lens
 import qualified Data.List as L
@@ -37,6 +37,11 @@ importParserSpec = do
     it "can parse a single import statement" $ do
       let res = readP_to_S importsParser "import \"../Thing/Contract.sol\";"
       (fst . head $ res) `shouldBe` "Contract.sol"
+    it "can parse multiple import statements" $ do
+      imps <- runExceptT $ grabImports importStatements
+      print imps
+      let Right imps' = imps
+      length imps' `shouldBe` 5
 
 yamlSpec :: Spec
 yamlSpec = do
@@ -79,6 +84,15 @@ fileParserSpec = do
 --------------------------------------------------------------------------------
 -- | Constants
 --------------------------------------------------------------------------------
+importStatements :: T.Text
+importStatements = T.unlines $
+  [ "import \"./Permissions/Owned.sol\";"
+  , "import \"./Permissions/ReadPermissioned.sol\";"
+  , "import \"./Storage/BasicUserStorage.sol\";"
+  , "import \"./Storage/StorageBlob.sol\";"
+  , "import \"./Login.sol\";"
+  ]
+
 contractYaml :: ByteString
 contractYaml = [r|
 - name: Owned

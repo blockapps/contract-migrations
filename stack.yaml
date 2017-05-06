@@ -4,11 +4,11 @@ packages:
 - '.'
 - location: 
     git: https://github.com/blockapps/blockapps-haskell 
-    commit: a1329e7fdcfaeaa6129a78da20d0ec1cce022e5d
+    commit: f85bbd35669178f6a3ac5e0631574def5f7e0cf4 
   extra-dep: true
   subdirs:
-  - bloc/api
-  - bloc/client
+  - bloc/bloc21/api
+  - bloc/bloc21/client
   - ethereum
   - solidity
   - strato/api

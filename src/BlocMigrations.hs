@@ -11,11 +11,11 @@
 
 module BlocMigrations where
 
-import           BlockApps.Bloc.API.Users
-import           BlockApps.Bloc.API.Utils
+import           BlockApps.Bloc21.API.Users
+import           BlockApps.Bloc21.API.Utils
 import           BlockApps.Solidity.ArgValue
-import qualified BlockApps.Bloc.Client    as Bloc
-import           BlockApps.Bloc.Crypto
+import qualified BlockApps.Bloc21.Client    as Bloc
+import           BlockApps.Bloc21.Crypto
 import           BlockApps.Ethereum       (Address, addressString)
 import           Control.Error
 import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1, _2)
@@ -54,7 +54,7 @@ data MigrationError = ParseError Text
 data AdminConfig =
   AdminConfig { _adminUsername :: UserName
               , _adminPassword :: Password
-              , _adminFaucet   :: Text
+              , _adminFaucet   :: Bool
               } deriving (Eq, Show)
 makeLenses ''AdminConfig
 
@@ -62,9 +62,9 @@ createAdmin :: ClientEnv
             -> AdminConfig
             -> ExceptT MigrationError IO Address
 createAdmin clientEnv admin =
-    let postUsersUserRequest = PostUsersUserRequest (admin^.adminFaucet) (admin^.adminPassword)
+    let postUsersUserRequest = (admin^.adminPassword)
     in ExceptT $ fmap (first message) $
-         runClientM (Bloc.postUsersUser (admin^.adminUsername) postUsersUserRequest) clientEnv
+         runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) clientEnv
   where
     message :: ServantError -> MigrationError
     message = BlocError . T.pack . show
