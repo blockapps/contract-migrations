@@ -120,5 +120,6 @@ exampleList = [ex1, ex2]
       , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
       , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
       , _contractUploadNonce = Just 10
+      , _contractUploadIndexed = []
       }
-    ex2 = ContractForUpload "IdentityAccessManager" "IdentityAccessManager.sol" Nothing Nothing Nothing
+    ex2 = ContractForUpload "IdentityAccessManager" "IdentityAccessManager.sol" Nothing Nothing Nothing []

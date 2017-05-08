@@ -11,11 +11,9 @@
 
 module BlocMigrations where
 
-import           BlockApps.Bloc21.API.Users
-import           BlockApps.Bloc21.API.Utils
+import           BlockApps.Bloc21.API
 import           BlockApps.Solidity.ArgValue
 import qualified BlockApps.Bloc21.Client    as Bloc
-import           BlockApps.Bloc21.Crypto
 import           BlockApps.Ethereum       (Address, addressString)
 import           Control.Error
 import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1, _2)
@@ -88,6 +86,7 @@ data ContractForUpload s =
     , _contractUploadInitialArgs :: Maybe (Map Text ArgValue)
     , _contractUploadTxParams    :: Maybe TxParams
     , _contractUploadNonce       :: Maybe Natural
+    , _contractUploadIndexed     :: [Text]
     }
 
 makeLenses ''ContractForUpload
@@ -102,6 +101,7 @@ instance FromJSON (ContractForUpload 'AsFilename) where
                       <*> o .:? "args"
                       <*> o .:? "txParams"
                       <*> o .:? "value"
+                      <*> (fromMaybe [] <$> (o .:? "index"))
   parseJSON v = fail $ "Needed an object, found: " ++ show v
 
 -- | This looks for any directory that contains a file with a
@@ -235,7 +235,7 @@ deployContract ::  ClientEnv
                -> ContractForUpload 'AsCode
                -> ExceptT MigrationError IO Address
 deployContract env admin adminAddr contract =
-  let req = PostUsersContractRequest
+  let postContractReq = PostUsersContractRequest
         { postuserscontractrequestSrc = contract^.contractUploadSource
         , postuserscontractrequestPassword = admin^.adminPassword
         , postuserscontractrequestContract = contract^.contractUploadName
@@ -243,8 +243,13 @@ deployContract env admin adminAddr contract =
         , postuserscontractrequestTxParams = contract^.contractUploadTxParams
         , postuserscontractrequestValue = contract^.contractUploadNonce
         }
+      indexContractReq = PostCompileRequest
+        { postcompilerequestSearchable = contract^.contractUploadIndexed
+        , postcompilerequestContractName = contract^.contractUploadName
+        , postcompilerequestSource = contract^.contractUploadSource}
   in ExceptT $ do
-       eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr req) env
+       _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
+       eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr postContractReq) env
        case eresp of
          Left serr -> do
            msg <- message serr

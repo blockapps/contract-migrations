@@ -88,6 +88,7 @@ exampleUpload = ContractForUpload
   , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
   , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
   , _contractUploadNonce = Just 10
+  , _contractUploadIndexed = []
   }
 
 exampleUpload' :: ExceptT MigrationError IO (ContractForUpload 'AsCode)
