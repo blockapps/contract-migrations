@@ -12,30 +12,33 @@
 module BlocMigrations where
 
 import           BlockApps.Bloc21.API
+import qualified BlockApps.Bloc21.Client      as Bloc
+import           BlockApps.Ethereum           (Address, addressString)
 import           BlockApps.Solidity.ArgValue
-import qualified BlockApps.Bloc21.Client    as Bloc
-import           BlockApps.Ethereum       (Address, addressString)
 import           Control.Error
-import           Control.Lens             (use, (%=), (&), (.=), (.~), (^.), _1, _2)
-import           Control.Lens.TH          (makeLenses)
-import           Control.Monad            (forM)
+import           Control.Lens                 (use, (%=), (&), (.=), (.~), (^.),
+                                               _1, _2)
+import           Control.Lens.TH              (makeLenses)
+import           Control.Monad                (forM)
 import           Control.Monad.Except
 import           Control.Monad.State.Lazy
-import           Data.Bifunctor           (first)
-import qualified Data.Graph               as G
-import           Data.List                (dropWhile, last, reverse, takeWhile)
-import           Data.Map.Strict          (Map)
-import qualified Data.Map.Strict          as Map
-import           Data.Monoid              ((<>))
-import qualified Data.Set                 as S
-import           Data.Text                (Text)
-import qualified Data.Text                as T
-import qualified Data.Text.IO             as T
-import           Data.Yaml                (FromJSON, (.:), (.:?))
-import qualified Data.Yaml                as Y
+import           Data.Bifunctor               (first)
+import qualified Data.Graph                   as G
+import           Data.List                    (dropWhile, last, reverse,
+                                               takeWhile)
+import           Data.Map.Strict              (Map)
+import qualified Data.Map.Strict              as Map
+import           Data.Monoid                  ((<>))
+import qualified Data.Set                     as S
+import           Data.Text                    (Text)
+import qualified Data.Text                    as T
+import qualified Data.Text.IO                 as T
+import           Data.Yaml                    (FromJSON, (.:), (.:?))
+import qualified Data.Yaml                    as Y
 import           Numeric.Natural
 import           Servant.Client
-import           System.FilePath.Find     (always, contains, find)
+import           System.Environment           (lookupEnv)
+import           System.FilePath.Find         (always, contains, find)
 
 import           Text.ParserCombinators.ReadP
 --------------------------------------------------------------------------------
@@ -233,8 +236,9 @@ deployContract ::  ClientEnv
                -> AdminConfig
                -> Address -- ^ the admin's address
                -> ContractForUpload 'AsCode
+               -> Bool -- ^ print contract source code
                -> ExceptT MigrationError IO Address
-deployContract env admin adminAddr contract =
+deployContract env admin adminAddr contract verbose =
   let postContractReq = PostUsersContractRequest
         { postuserscontractrequestSrc = contract^.contractUploadSource
         , postuserscontractrequestPassword = admin^.adminPassword
@@ -256,7 +260,8 @@ deployContract env admin adminAddr contract =
            return . Left $ msg
          Right success -> do
            liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
-           liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
+           when verbose $
+             liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
            return . Right $ success
   where
     message :: ServantError -> IO MigrationError
@@ -273,14 +278,15 @@ deployContracts :: ClientEnv
                 -> Address -- ^ ownerAddress
                 -> FilePath -- ^ location of contracts.yaml
                 -> FilePath -- ^ contracts dir
+                -> Bool -- ^ print contracts
                 -> ExceptT MigrationError IO [Contract]
-deployContracts env admin ownerAddr contractYaml contractsDir = do
+deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
   ecs <- liftIO $ Y.decodeFileEither contractYaml
   case ecs of
     Left e -> throwError . ParseError . T.pack . show $ e
     Right cs -> forM cs $ \c -> do
       c' <- withSourceCode contractsDir c
-      addr <- deployContract env admin ownerAddr c'
+      addr <- deployContract env admin ownerAddr c' verbose
       return $ Contract (ContractName (c^.contractUploadName)) addr
 
 --------------------------------------------------------------------------------
@@ -302,8 +308,9 @@ runMigration :: ClientEnv
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml contractsDir = runExceptT $ do
   adminAddress <- createAdmin env admin
+  verbose <- fmap isJust . liftIO $ lookupEnv "VERBOSE_CONTRACT_UPLOAD"
   liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
   liftIO . print $ ("Deploying Contracts" :: String)
-  cs <- deployContracts env admin adminAddress contractYaml contractsDir
+  cs <- deployContracts env admin adminAddress contractYaml contractsDir verbose
   liftIO $ print ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress cs

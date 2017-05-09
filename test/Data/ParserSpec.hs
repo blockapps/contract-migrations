@@ -5,24 +5,24 @@
 
 module Data.ParserSpec (spec) where
 
-import           Control.Error
 import           BlockApps.Bloc21.API
 import           BlockApps.Ethereum
+import           BlockApps.Solidity.ArgValue
+import           BlocMigrations
+import           Control.Error
 import           Control.Lens
-import qualified Data.List as L
-import           Data.ByteString (ByteString)
+import           Data.ByteString              (ByteString)
 import           Data.Either
-import qualified Data.Graph as G
-import qualified Data.Map.Strict    as Map
-import qualified Data.Set as S
-import qualified Data.Text as T
-import qualified Data.Text.IO       as T
+import qualified Data.Graph                   as G
+import qualified Data.List                    as L
+import qualified Data.Map.Strict              as Map
+import qualified Data.Set                     as S
+import qualified Data.Text                    as T
+import qualified Data.Text.IO                 as T
 import           Data.Yaml
 import           Test.Hspec
-import           Text.RawString.QQ
 import           Text.ParserCombinators.ReadP
-import           BlocMigrations
-import           BlockApps.Solidity.ArgValue
+import           Text.RawString.QQ
 
 spec :: Spec
 spec = do
