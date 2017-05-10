@@ -32,7 +32,7 @@ filenames are unique within your project, i.e. you cannot have two different con
 Assume you have two seperate contracts, `.../contracts/Abstract/Base.sol` and `.../contracts/Concrete/Simple.sol` in seprate files, where `Simple` depends on `Base`:
 
 ```solidity
--- Base.sol
+// Base.sol
 
 contract Base {
 ...
@@ -40,7 +40,7 @@ contract Base {
 ```
 
 ```solidity
--- Simple.sol
+// Simple.sol
 
 import ../Abstract/Base.sol
 
@@ -73,3 +73,42 @@ contract Simple is Base {
 ...
 }
 ```
+
+## Cirrus indexing
+
+If you have contracts that you want to index in cirrus, you'll need to indicate this in your `contracts.yaml` file. Let's say you have contracts `StorageBlob` and `StorageBlobDeployer` as in the following:
+
+```solidity
+// StorageBlobDeployer.sol
+
+contract StorageBlob {
+
+  string contents;
+
+  function StorageBlob(string _contents) {
+    contents = _contents;
+  }
+}
+
+contract StorageBlobDeployer {
+
+  address[] blobs;
+  
+  function deployStorageBlob(string _contents) {
+    StorageBlob blob = new StorageBlob(_contents);
+    blobs.push(blob);
+  }
+
+}
+```
+
+If you would like to index the `StorageBlobs` you will be deploying, your `contracts.yaml` file would look like:
+
+```yaml
+- name: StorageBlobDeployer
+  file: StorageBlobDeployer.sol
+  index:
+    - StorageBlob
+```
+
+In general, the `index` field will contain a list of contracts that you would like to index. These contracts should all be dependencies of the _entry point contract_, i.e. the one listed in the `name` field, so that when the contracts are gathered and uploaded they appear in that uploaded source code. 
