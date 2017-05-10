@@ -236,7 +236,7 @@ deployContract ::  ClientEnv
                -> AdminConfig
                -> Address -- ^ the admin's address
                -> ContractForUpload 'AsCode
-               -> Bool -- ^ print contract source code
+               -> VerboseMode -- ^ print contract source code
                -> ExceptT MigrationError IO Address
 deployContract env admin adminAddr contract verbose =
   let postContractReq = PostUsersContractRequest
@@ -260,7 +260,7 @@ deployContract env admin adminAddr contract verbose =
            return . Left $ msg
          Right success -> do
            liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
-           when verbose $
+           when (verbose == DEBUG) $
              liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
            return . Right $ success
   where
@@ -278,7 +278,7 @@ deployContracts :: ClientEnv
                 -> Address -- ^ ownerAddress
                 -> FilePath -- ^ location of contracts.yaml
                 -> FilePath -- ^ contracts dir
-                -> Bool -- ^ print contracts
+                -> VerboseMode -- ^ print contracts
                 -> ExceptT MigrationError IO [Contract]
 deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
   ecs <- liftIO $ Y.decodeFileEither contractYaml
@@ -292,6 +292,10 @@ deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
 --------------------------------------------------------------------------------
 -- | Run the migration
 --------------------------------------------------------------------------------
+
+data VerboseMode = DEBUG
+                 | SILENT
+                  deriving (Show, Read, Eq)
 
 data MigrationResult =
   MigrationResult { _migrationAdminAddress :: Address
@@ -308,7 +312,8 @@ runMigration :: ClientEnv
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml contractsDir = runExceptT $ do
   adminAddress <- createAdmin env admin
-  verbose <- fmap isJust . liftIO $ lookupEnv "VERBOSE_CONTRACT_UPLOAD"
+  verbose <- liftIO $ lookupEnv "VERBOSE_CONTRACT_UPLOAD" >>= maybe (return SILENT) (return . read)
+  liftIO . print $ "Verbose Level: " <> show verbose
   liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
   liftIO . print $ ("Deploying Contracts" :: String)
   cs <- deployContracts env admin adminAddress contractYaml contractsDir verbose

@@ -52,12 +52,12 @@ uploadSpec = do
       it "can upload a single contract" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        cAddr <- runExceptT (exampleUpload'>>= \c -> deployContract bloc adminConfig addr c False)
+        cAddr <- runExceptT (exampleUpload'>>= \c -> deployContract bloc adminConfig addr c SILENT)
         cAddr `shouldSatisfy` isRight
       it "can upload a many contracts" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" False)
+        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" SILENT)
         let (Right newCs') = newCs
         print newCs
         (newCs' !! 0) ^. contractName  `shouldBe` "IdentityAccessManager"
