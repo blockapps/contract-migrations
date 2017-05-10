@@ -1,5 +1,9 @@
 # contract-migrations
 
+- [Getting Started](#cirrus-indexing)
+- [Cirrus Indexing](#cirrus-indexing)
+
+## Getting Started
 This is a contract deployment tool meant to be used with other haskell projects that interact with `Bloc`.
 The expectations are something like this:
 
@@ -74,7 +78,7 @@ contract Simple is Base {
 }
 ```
 
-## Cirrus indexing
+## Cirrus Indexing
 
 If you have contracts that you want to index in cirrus, you'll need to indicate this in your `contracts.yaml` file. Let's say you have contracts `StorageBlob` and `StorageBlobDeployer` as in the following:
 
