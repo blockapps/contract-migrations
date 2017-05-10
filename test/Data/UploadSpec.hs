@@ -5,31 +5,31 @@
 
 module Data.UploadSpec (spec) where
 
-import           BlockApps.Bloc21.API hiding (mockBloc)
+import           BlockApps.Bloc21.API        hiding (mockBloc)
 import           BlockApps.Ethereum
 import           Control.Concurrent
 import           Control.Monad.Logger
 
 import           Control.Error
 import           Control.Lens
-import           Data.ByteString (ByteString)
-import qualified Data.Map.Strict                as Map
+import           Data.ByteString             (ByteString)
+import qualified Data.Map.Strict             as Map
 import           Data.Text
-import qualified Data.Text.IO                   as T
+import qualified Data.Text.IO                as T
 import           Data.Yaml
 import           Test.Hspec
 import           Text.RawString.QQ
 
-import           Network.HTTP.Client            (defaultManagerSettings,
-                                                 newManager)
-import           Network.Wai.Handler.Warp       (run, testWithApplication)
+import           Network.HTTP.Client         (defaultManagerSettings,
+                                              newManager)
+import           Network.Wai.Handler.Warp    (run, testWithApplication)
 import           Servant
 import           Servant.Client
 import           Servant.Mock
-import           System.IO.Unsafe               (unsafePerformIO)
+import           System.IO.Unsafe            (unsafePerformIO)
 
-import           BlocMigrations
 import           BlockApps.Solidity.ArgValue
+import           BlocMigrations
 
 spec :: Spec
 spec = do
@@ -52,12 +52,12 @@ uploadSpec = do
       it "can upload a single contract" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        cAddr <- runExceptT (deployContract bloc adminConfig addr =<< exampleUpload')
+        cAddr <- runExceptT (exampleUpload'>>= \c -> deployContract bloc adminConfig addr c False)
         cAddr `shouldSatisfy` isRight
       it "can upload a many contracts" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts")
+        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" False)
         let (Right newCs') = newCs
         print newCs
         (newCs' !! 0) ^. contractName  `shouldBe` "IdentityAccessManager"
@@ -88,6 +88,7 @@ exampleUpload = ContractForUpload
   , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
   , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
   , _contractUploadNonce = Just 10
+  , _contractUploadIndexed = []
   }
 
 exampleUpload' :: ExceptT MigrationError IO (ContractForUpload 'AsCode)

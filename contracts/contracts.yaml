@@ -1,4 +1,6 @@
 - name: IdentityAccessManager
   file: IdentityAccessManager.sol
+  index:
+    - BasicUserStorage
 - name: Simple
   file: Simple.sol
