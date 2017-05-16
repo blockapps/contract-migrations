@@ -1,6 +1,6 @@
 # contract-migrations
 
-- [Getting Started](#cirrus-indexing)
+- [Getting Started](#getting-started)
 - [Cirrus Indexing](#cirrus-indexing)
 
 ## Getting Started
