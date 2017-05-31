@@ -5,6 +5,7 @@
 
 module Data.ParserSpec (spec) where
 
+import           BlockApps.Strato.Types
 import           BlockApps.Bloc21.API
 import           BlockApps.Ethereum
 import           BlockApps.Solidity.ArgValue
@@ -115,11 +116,11 @@ exampleList = [ex1, ex2]
   where
     ex1, ex2 :: ContractForUpload 'AsFilename
     ex1 = ContractForUpload
-      { _contractUploadName = "Owned"
+      { _contractUploadName = Just "Owned"
       , _contractUploadSource = "Owned.sol"
       , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
       , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
-      , _contractUploadNonce = Just 10
-      , _contractUploadIndexed = []
+      , _contractUploadNonce = Just (Strung 10)
+      , _contractUploadIndexed = Nothing
       }
-    ex2 = ContractForUpload "IdentityAccessManager" "IdentityAccessManager.sol" Nothing Nothing Nothing []
+    ex2 = ContractForUpload (Just "IdentityAccessManager") "IdentityAccessManager.sol" Nothing Nothing Nothing Nothing

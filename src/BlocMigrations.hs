@@ -11,6 +11,7 @@
 
 module BlocMigrations where
 
+import           BlockApps.Strato.Types        (Strung(..))
 import           BlockApps.Bloc21.API
 import qualified BlockApps.Bloc21.Client      as Bloc
 import           BlockApps.Ethereum           (Address, addressString)
@@ -32,6 +33,7 @@ import           Data.Monoid                  ((<>))
 import qualified Data.Set                     as S
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
+import qualified Data.Text.Encoding           as T
 import qualified Data.Text.IO                 as T
 import           Data.Yaml                    (FromJSON, (.:), (.:?))
 import qualified Data.Yaml                    as Y
@@ -59,6 +61,13 @@ data AdminConfig =
               } deriving (Eq, Show)
 makeLenses ''AdminConfig
 
+getAdminFromEnv :: IO (Either Text AdminConfig)
+getAdminFromEnv = runExceptT $ do
+  usrName <- UserName . T.pack <$> (lookupEnv "BLOC_ADMIN_USERNAME" !? "Could Not Find BLOC_ADMIN_USERNAME.")
+  pwd <- Password . T.encodeUtf8 . T.pack <$> (lookupEnv "BLOC_ADMIN_PASSWORD" !? "Could Not Find BLOC_ADMIN_PASSWORD.")
+  faucetOn <- read <$> (lookupEnv "BLOC_ADMIN_FAUCET" !? "Could not find BLOC_ADMIN_FAUCET.")
+  return $ AdminConfig usrName pwd faucetOn
+
 createAdmin :: ClientEnv
             -> AdminConfig
             -> ExceptT MigrationError IO Address
@@ -84,12 +93,12 @@ type family SourceType s where
 
 data ContractForUpload s =
   ContractForUpload
-    { _contractUploadName        :: Text
+    { _contractUploadName        :: Maybe Text
     , _contractUploadSource      :: SourceType s
     , _contractUploadInitialArgs :: Maybe (Map Text ArgValue)
     , _contractUploadTxParams    :: Maybe TxParams
-    , _contractUploadNonce       :: Maybe Natural
-    , _contractUploadIndexed     :: [Text]
+    , _contractUploadNonce       :: Maybe (Strung Natural)
+    , _contractUploadIndexed     :: Maybe [Text]
     }
 
 makeLenses ''ContractForUpload
@@ -99,12 +108,12 @@ deriving instance Show (SourceType s) => Show (ContractForUpload s)
 
 instance FromJSON (ContractForUpload 'AsFilename) where
   parseJSON (Y.Object o) =
-    ContractForUpload <$> o .: "name"
-                      <*> o .: "file"
+    ContractForUpload <$> o .:? "name"
+                      <*> o .:  "file"
                       <*> o .:? "args"
                       <*> o .:? "txParams"
                       <*> o .:? "value"
-                      <*> (fromMaybe [] <$> (o .:? "index"))
+                      <*> o .:? "index"
   parseJSON v = fail $ "Needed an object, found: " ++ show v
 
 -- | This looks for any directory that contains a file with a
@@ -226,7 +235,7 @@ withSourceCode contractsDir c = do
 --------------------------------------------------------------------------------
 
 data Contract =
-  Contract { _contractName    :: ContractName
+  Contract { _contractName    :: Maybe ContractName
            , _contractAddress :: Address
            } deriving (Eq, Show)
 makeLenses ''Contract
@@ -259,7 +268,7 @@ deployContract env admin adminAddr contract verbose =
            msg <- message serr
            return . Left $ msg
          Right success -> do
-           liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
+           liftIO . print $ "Deployed Contract: " <> (fromMaybe "<UnNamed>" $ contract^.contractUploadName)
            when (verbose == DEBUG) $
              liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
            return . Right $ success
@@ -267,8 +276,8 @@ deployContract env admin adminAddr contract verbose =
     message :: ServantError -> IO MigrationError
     message e = do
       _ <- liftIO . putStrLn . show $ e
-      return $ BlocError $ mconcat [ "Failed to deploy --a ["
-                                   , contract ^. contractUploadName
+      return $ BlocError $ mconcat [ "Failed to deploy -- ["
+                                   , fromMaybe "<UnNamed>" $ contract ^. contractUploadName
                                    , "]-- "
                                    ]
 
@@ -287,7 +296,7 @@ deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
     Right cs -> forM cs $ \c -> do
       c' <- withSourceCode contractsDir c
       addr <- deployContract env admin ownerAddr c' verbose
-      return $ Contract (ContractName (c^.contractUploadName)) addr
+      return $ Contract (ContractName <$> (c^.contractUploadName)) addr
 
 --------------------------------------------------------------------------------
 -- | Run the migration
