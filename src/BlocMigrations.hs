@@ -93,7 +93,7 @@ type family SourceType s where
 
 data ContractForUpload s =
   ContractForUpload
-    { _contractUploadName        :: Maybe Text
+    { _contractUploadName        :: Text
     , _contractUploadSource      :: SourceType s
     , _contractUploadInitialArgs :: Maybe (Map Text ArgValue)
     , _contractUploadTxParams    :: Maybe TxParams
@@ -108,7 +108,7 @@ deriving instance Show (SourceType s) => Show (ContractForUpload s)
 
 instance FromJSON (ContractForUpload 'AsFilename) where
   parseJSON (Y.Object o) =
-    ContractForUpload <$> o .:? "name"
+    ContractForUpload <$> o .: "name"
                       <*> o .:  "file"
                       <*> o .:? "args"
                       <*> o .:? "txParams"
@@ -235,7 +235,7 @@ withSourceCode contractsDir c = do
 --------------------------------------------------------------------------------
 
 data Contract =
-  Contract { _contractName    :: Maybe ContractName
+  Contract { _contractName    :: ContractName
            , _contractAddress :: Address
            } deriving (Eq, Show)
 makeLenses ''Contract
@@ -251,14 +251,14 @@ deployContract env admin adminAddr contract verbose =
   let postContractReq = PostUsersContractRequest
         { postuserscontractrequestSrc = contract^.contractUploadSource
         , postuserscontractrequestPassword = admin^.adminPassword
-        , postuserscontractrequestContract = contract^.contractUploadName
+        , postuserscontractrequestContract = Just $ contract^.contractUploadName
         , postuserscontractrequestArgs = contract^.contractUploadInitialArgs
         , postuserscontractrequestTxParams = contract^.contractUploadTxParams
         , postuserscontractrequestValue = contract^.contractUploadNonce
         }
       indexContractReq = PostCompileRequest
         { postcompilerequestSearchable = contract^.contractUploadIndexed
-        , postcompilerequestContractName = contract^.contractUploadName
+        , postcompilerequestContractName = Just $ contract^.contractUploadName
         , postcompilerequestSource = contract^.contractUploadSource}
   in ExceptT $ do
        _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
@@ -268,7 +268,7 @@ deployContract env admin adminAddr contract verbose =
            msg <- message serr
            return . Left $ msg
          Right success -> do
-           liftIO . print $ "Deployed Contract: " <> (fromMaybe "<UnNamed>" $ contract^.contractUploadName)
+           liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
            when (verbose == DEBUG) $
              liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
            return . Right $ success
@@ -277,7 +277,7 @@ deployContract env admin adminAddr contract verbose =
     message e = do
       _ <- liftIO . putStrLn . show $ e
       return $ BlocError $ mconcat [ "Failed to deploy -- ["
-                                   , fromMaybe "<UnNamed>" $ contract ^. contractUploadName
+                                   , contract ^. contractUploadName
                                    , "]-- "
                                    ]
 
@@ -296,7 +296,7 @@ deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
     Right cs -> forM cs $ \c -> do
       c' <- withSourceCode contractsDir c
       addr <- deployContract env admin ownerAddr c' verbose
-      return $ Contract (ContractName <$> (c^.contractUploadName)) addr
+      return $ Contract (ContractName $ c^.contractUploadName) addr
 
 --------------------------------------------------------------------------------
 -- | Run the migration
