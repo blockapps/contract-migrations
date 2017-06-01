@@ -21,6 +21,7 @@ library
                      , blockapps-bloc21-api
                      , blockapps-bloc21-client
                      , blockapps-solidity
+                     , blockapps-strato-api
                      , containers
                      , errors
                      , filemanip 
@@ -42,6 +43,7 @@ test-suite contract-migrations-test
                      , blockapps-bloc21-api
                      , blockapps-ethereum
                      , blockapps-solidity
+                     , blockapps-strato-api
                      , bytestring
                      , containers
                      , errors

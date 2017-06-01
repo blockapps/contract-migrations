@@ -5,6 +5,7 @@
 
 module Data.UploadSpec (spec) where
 
+import           BlockApps.Strato.Types
 import           BlockApps.Bloc21.API        hiding (mockBloc)
 import           BlockApps.Ethereum
 import           Control.Concurrent
@@ -59,7 +60,6 @@ uploadSpec = do
         Right addr <- runExceptT $ createAdmin bloc adminConfig
         newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" SILENT)
         let (Right newCs') = newCs
-        print newCs
         (newCs' !! 0) ^. contractName  `shouldBe` "IdentityAccessManager"
 
 --------------------------------------------------------------------------------
@@ -87,8 +87,8 @@ exampleUpload = ContractForUpload
   , _contractUploadSource = "Owned.sol"
   , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
   , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
-  , _contractUploadNonce = Just 10
-  , _contractUploadIndexed = []
+  , _contractUploadNonce = Just (Strung 10)
+  , _contractUploadIndexed = Just []
   }
 
 exampleUpload' :: ExceptT MigrationError IO (ContractForUpload 'AsCode)

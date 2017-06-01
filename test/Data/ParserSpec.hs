@@ -5,6 +5,7 @@
 
 module Data.ParserSpec (spec) where
 
+import           BlockApps.Strato.Types
 import           BlockApps.Bloc21.API
 import           BlockApps.Ethereum
 import           BlockApps.Solidity.ArgValue
@@ -12,7 +13,6 @@ import           BlocMigrations
 import           Control.Error
 import           Control.Lens
 import           Data.ByteString              (ByteString)
-import           Data.Either
 import qualified Data.Graph                   as G
 import qualified Data.List                    as L
 import qualified Data.Map.Strict              as Map
@@ -39,7 +39,6 @@ importParserSpec = do
       (fst . head $ res) `shouldBe` "Contract.sol"
     it "can parse multiple import statements" $ do
       imps <- runExceptT $ grabImports importStatements
-      print imps
       let Right imps' = imps
       length imps' `shouldBe` 5
 
@@ -62,12 +61,16 @@ fileParserSpec :: Spec
 fileParserSpec = do
   describe "it can gather and files into blob based on imports" $ do
     it "can find import statements" $ do
-      Right code <- runExceptT $ grabSourceCode "." "Simple.Sol"
+      Right code <- runExceptT $ grabSourceCode "./contracts" "Simple.Sol"
       Right len <- runExceptT $ fmap L.length $  grabImports code
       len `shouldBe` 4
     it "can grab a dependency set with the right size" $ do
-      Right imps <- runExceptT $ grabSourceCode "." "Simple.Sol" >>= grabImports
-      Right (g, _, _) <- runExceptT $ grabDependencyGraph "Simple.Sol" imps "."
+      eimps <- runExceptT $ grabSourceCode "./contracts" "Simple.Sol" >>= grabImports
+      eimps `shouldSatisfy` isRight
+      let Right imps = eimps
+      eGdata <- runExceptT $ grabDependencyGraph "Simple.Sol" imps "./contracts"
+      ((^. _1) <$> eGdata) `shouldSatisfy` isRight
+      let Right (g, _, _) = eGdata
       (L.length . G.vertices $ g) `shouldBe` 8
     it "can properly trim off imports of one file" $ do
       Right t <- runExceptT . fmap T.strip $ readAndTrimFiles ["Simple.Sol"] "."
@@ -119,7 +122,7 @@ exampleList = [ex1, ex2]
       , _contractUploadSource = "Owned.sol"
       , _contractUploadInitialArgs = Just $ Map.fromList [("name", ArgString "Bob") , ("age", ArgInt 23)]
       , _contractUploadTxParams = Just (TxParams (Just $ Gas 1) (Just $ Wei 2) (Just $ Nonce 3))
-      , _contractUploadNonce = Just 10
-      , _contractUploadIndexed = []
+      , _contractUploadNonce = Just (Strung 10)
+      , _contractUploadIndexed = Nothing
       }
-    ex2 = ContractForUpload "IdentityAccessManager" "IdentityAccessManager.sol" Nothing Nothing Nothing []
+    ex2 = ContractForUpload "IdentityAccessManager" "IdentityAccessManager.sol" Nothing Nothing Nothing Nothing
