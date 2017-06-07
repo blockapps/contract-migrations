@@ -261,7 +261,10 @@ deployContract env admin adminAddr contract verbose =
         , postcompilerequestContractName = Just $ contract^.contractUploadName
         , postcompilerequestSource = contract^.contractUploadSource}
   in ExceptT $ do
-       _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
+       when (isJust $ postcompilerequestSearchable indexContractReq) $ do
+         let searchableList = fromMaybe [] $ postcompilerequestSearchable indexContractReq
+         _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
+         liftIO . print $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
        eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr postContractReq) env
        case eresp of
          Left serr -> do
