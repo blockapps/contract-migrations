@@ -25,7 +25,7 @@ getContractAbi env dir contract = do
     Left e -> do
       liftIO $ print e
       throwE . FindContractError $ "Could not find Xabi for contract: " <> cNameText
-    Right deets -> return $ ((dir <> "/" <> cs  cNameText), encode deets)
+    Right deets -> return $ (dir <> "/" <> cs  cNameText <> ".json", encode deets)
 
 makeBuildDir :: FilePath -> IO ()
-makeBuildDir rootDir = createDirectoryIfMissing True $ rootDir <> "build/contracts"
+makeBuildDir buildDir = createDirectoryIfMissing True buildDir

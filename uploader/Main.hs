@@ -9,6 +9,8 @@ import           BuildArtifacts
 import           Control.Error
 import           Control.Lens ((^.), _1, _2)
 import           Control.Monad
+import           Data.Monoid
+import           Control.Monad.IO.Class
 import           System.Environment (lookupEnv)
 
 main :: IO ()
@@ -16,9 +18,12 @@ main = do
   eRes <- runExceptT $ do
     admin <- getAdminFromEnv
     bloc <- makeBlocEnv
-    yml <- lookupEnv "CONTRACTS_DIR" !? EnvError "Couldn't find CONTRACTS_YAML"
+    yml <- lookupEnv "CONTRACTS_YAML" !? EnvError "Couldn't find CONTRACTS_YAML"
+    liftIO $ print yml
     cDir <- lookupEnv "CONTRACTS_DIR" !? EnvError "Couldn't find CONTRACTS_DIR"
-    buildDir <- lookupEnv "BUILD_DIR" !? EnvError "Couldn't find BUILD_DIR"
+    liftIO $ print cDir
+    buildRoot <- lookupEnv "BUILD_ROOT" !? EnvError "Couldn't find BUILD_ROOT"
+    let buildDir = buildRoot <> "/build/contracts"
     results <- ExceptT $ runMigration bloc admin yml cDir
     artifacts <- forM (results^.migrationContractList) $ getContractAbi bloc buildDir
     return (results^.migrationAdminAddress, buildDir, artifacts)
