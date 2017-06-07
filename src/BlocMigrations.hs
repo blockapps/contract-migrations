@@ -11,11 +11,11 @@
 
 module BlocMigrations where
 
-import           BlockApps.Strato.Types        (Strung(..))
 import           BlockApps.Bloc21.API
 import qualified BlockApps.Bloc21.Client      as Bloc
 import           BlockApps.Ethereum           (Address, addressString)
 import           BlockApps.Solidity.ArgValue
+import           BlockApps.Strato.Types       (Strung (..))
 import           Control.Error
 import           Control.Lens                 (use, (%=), (&), (.=), (.~), (^.),
                                                _1, _2)
@@ -37,6 +37,8 @@ import qualified Data.Text.Encoding           as T
 import qualified Data.Text.IO                 as T
 import           Data.Yaml                    (FromJSON, (.:), (.:?))
 import qualified Data.Yaml                    as Y
+import           Network.HTTP.Client          (defaultManagerSettings,
+                                               newManager)
 import           Numeric.Natural
 import           Servant.Client
 import           System.Environment           (lookupEnv)
@@ -47,6 +49,7 @@ import           Text.ParserCombinators.ReadP
 
 data MigrationError = ParseError Text
                     | BlocError Text
+                    | EnvError Text
                     | FindContractError Text
                     deriving (Show)
 
@@ -61,19 +64,33 @@ data AdminConfig =
               } deriving (Eq, Show)
 makeLenses ''AdminConfig
 
-getAdminFromEnv :: IO (Either Text AdminConfig)
-getAdminFromEnv = runExceptT $ do
-  usrName <- UserName . T.pack <$> (lookupEnv "BLOC_ADMIN_USERNAME" !? "Could Not Find BLOC_ADMIN_USERNAME.")
-  pwd <- Password . T.encodeUtf8 . T.pack <$> (lookupEnv "BLOC_ADMIN_PASSWORD" !? "Could Not Find BLOC_ADMIN_PASSWORD.")
-  faucetOn <- read <$> (lookupEnv "BLOC_ADMIN_FAUCET" !? "Could not find BLOC_ADMIN_FAUCET.")
+getAdminFromEnv :: ExceptT MigrationError IO AdminConfig
+getAdminFromEnv = do
+  usrName <- UserName . T.pack <$> (lookupEnv "BLOC_ADMIN_USERNAME" !? EnvError "Could Not Find BLOC_ADMIN_USERNAME.")
+  pwd <- Password . T.encodeUtf8 . T.pack <$> (lookupEnv "BLOC_ADMIN_PASSWORD" !? EnvError "Could Not Find BLOC_ADMIN_PASSWORD.")
+  faucetOn <- read <$> (lookupEnv "BLOC_ADMIN_FAUCET" !? EnvError "Could not find BLOC_ADMIN_FAUCET.")
   return $ AdminConfig usrName pwd faucetOn
+
+makeBlocEnv :: ExceptT MigrationError IO ClientEnv
+makeBlocEnv = do
+    scheme <- (lookupEnv "BLOC_SCHEME" !? EnvError "Couldn't find BLOC_SCHEME") >>= mkScheme
+    host <- lookupEnv "BLOC_HOST" !? EnvError "Couldn't find BLOC_HOST"
+    port <- fmap read (lookupEnv "BLOC_PORT" !? EnvError "Couldn't find BLOC_PORT")
+    path <- lookupEnv "BLOC_PATH" !? EnvError "Couldn't find BLOC_PATH"
+    mgr <- liftIO $ newManager defaultManagerSettings
+    return $ ClientEnv mgr (BaseUrl scheme host port path)
+  where
+    mkScheme :: String -> ExceptT MigrationError IO Scheme
+    mkScheme "Http"  = return Http
+    mkScheme "Https" = return Https
+    mkScheme _       = throwE . EnvError $ "Scheme must be either Http or Https."
 
 createAdmin :: ClientEnv
             -> AdminConfig
             -> ExceptT MigrationError IO Address
 createAdmin clientEnv admin =
     let postUsersUserRequest = (admin^.adminPassword)
-    in ExceptT $ fmap (first message) $
+    in ExceptT $ first message <$>
          runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) clientEnv
   where
     message :: ServantError -> MigrationError
@@ -147,14 +164,14 @@ importsParser = fmap last $ do
    between quoter quoter $
      sepBy1 (many1 (satisfy (/= ';'))) (char '/')
   where
-    quoter = satisfy (flip elem ("'\"" :: String))
+    quoter =  satisfy (`elem` ("'\"" :: String))
 
 -- | get all the dependencies for a solidity file.
 grabImports :: Text -> ExceptT MigrationError IO [FilePath]
 grabImports sourceCode =
     let ls = T.lines sourceCode
         importStrings = map T.unpack $ takeWhile isImportStatement ls
-    in forM importStrings $ \importString -> do
+    in forM importStrings $ \importString ->
          case readP_to_S importsParser importString of
            ((imp,_) : _) -> return imp
            other -> do
@@ -187,7 +204,7 @@ grabDependencyGraph _main fps contractsDir = do
       nbrs <- lift $ traverse grabNeighbors filepaths
       edgeSet %= \known -> foldr addEdges known nbrs
       visited <- use visitedVertices
-      let visited' = foldr S.insert visited (map fst nbrs)
+      let visited' = foldr (S.insert . fst) visited nbrs
           nextVertices = S.toList $ S.unions (map snd nbrs) `S.difference` visited'
       case nextVertices of
         [] -> return ()
@@ -224,9 +241,9 @@ withSourceCode contractsDir c = do
     ds -> do
       let _main = c^.contractUploadSource
       g <- grabDependencyGraph _main ds contractsDir
-      let orderedFileIndices = (G.topSort (g^._1))
+      let orderedFileIndices = G.topSort (g^._1)
           vertexMapping = g^._2
-          orderedFiles = reverse $ map (\v -> (vertexMapping v) ^._1) orderedFileIndices
+          orderedFiles = reverse $ map (\v -> vertexMapping v ^._1) orderedFileIndices
       fullSource <- readAndTrimFiles orderedFiles contractsDir
       return $ c & contractUploadSource .~ fullSource
 
@@ -278,7 +295,7 @@ deployContract env admin adminAddr contract verbose =
   where
     message :: ServantError -> IO MigrationError
     message e = do
-      _ <- liftIO . putStrLn . show $ e
+      _ <- print e
       return $ BlocError $ mconcat [ "Failed to deploy -- ["
                                    , contract ^. contractUploadName
                                    , "]-- "
@@ -324,7 +341,7 @@ runMigration :: ClientEnv
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml contractsDir = runExceptT $ do
   adminAddress <- createAdmin env admin
-  verbose <- liftIO $ lookupEnv "VERBOSE_CONTRACT_UPLOAD" >>= maybe (return SILENT) (return . read)
+  verbose <- liftIO $ maybe SILENT read <$> lookupEnv "VERBOSE_CONTRACT_UPLOAD"
   liftIO . print $ "Verbose Level: " <> show verbose
   liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
   liftIO . print $ ("Deploying Contracts" :: String)

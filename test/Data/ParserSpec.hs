@@ -5,10 +5,10 @@
 
 module Data.ParserSpec (spec) where
 
-import           BlockApps.Strato.Types
 import           BlockApps.Bloc21.API
 import           BlockApps.Ethereum
 import           BlockApps.Solidity.ArgValue
+import           BlockApps.Strato.Types
 import           BlocMigrations
 import           Control.Error
 import           Control.Lens
@@ -32,7 +32,8 @@ spec = do
 
 
 importParserSpec :: Spec
-importParserSpec = do
+importParserSpec =
+
   describe "can parse import statements" $ do
     it "can parse a single import statement" $ do
       let res = readP_to_S importsParser "import \"../Thing/Contract.sol\";"
@@ -43,8 +44,9 @@ importParserSpec = do
       length imps' `shouldBe` 5
 
 yamlSpec :: Spec
-yamlSpec = do
-  describe "it can parse a contracts.yaml file" $ do
+yamlSpec =
+
+  describe "it can parse a contracts.yaml file" $
     it "can get a list of ContractForUpload" $ do
       let Right cs :: Either ParseException [ContractForUpload 'AsFilename] = decodeEither' contractYaml
       cs `shouldBe` exampleList
@@ -58,11 +60,11 @@ yamlSpec = do
 --      raw2 `shouldBe` c2 ^. contractUploadSource
 
 fileParserSpec :: Spec
-fileParserSpec = do
+fileParserSpec =
   describe "it can gather and files into blob based on imports" $ do
     it "can find import statements" $ do
       Right code <- runExceptT $ grabSourceCode "./contracts" "Simple.Sol"
-      Right len <- runExceptT $ fmap L.length $  grabImports code
+      Right len <- runExceptT $ L.length <$>  grabImports code
       len `shouldBe` 4
     it "can grab a dependency set with the right size" $ do
       eimps <- runExceptT $ grabSourceCode "./contracts" "Simple.Sol" >>= grabImports
@@ -74,7 +76,7 @@ fileParserSpec = do
       (L.length . G.vertices $ g) `shouldBe` 8
     it "can properly trim off imports of one file" $ do
       Right t <- runExceptT . fmap T.strip $ readAndTrimFiles ["Simple.Sol"] "."
-      t' <- fmap T.strip $ T.readFile "./contracts/SimpleTrimmed.sol"
+      t' <- T.strip <$> T.readFile "./contracts/SimpleTrimmed.sol"
       T.strip t `shouldBe` T.strip t'
     it "can properly read, trim, and concat two files" $ do
       Right output <- runExceptT . fmap T.strip $ readAndTrimFiles
@@ -88,7 +90,7 @@ fileParserSpec = do
 -- | Constants
 --------------------------------------------------------------------------------
 importStatements :: T.Text
-importStatements = T.unlines $
+importStatements = T.unlines
   [ "import \"./Permissions/Owned.sol\";"
   , "import \"./Permissions/ReadPermissioned.sol\";"
   , "import \"./Storage/BasicUserStorage.sol\";"
