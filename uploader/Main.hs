@@ -9,6 +9,7 @@ import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Monoid
 import           Control.Monad.IO.Class
+import           System.Directory (removePathForcibly)
 import           System.Environment (lookupEnv)
 
 main :: IO ()
@@ -23,6 +24,7 @@ main = do
     buildRoot <- lookupEnv "BUILD_ROOT" !? EnvError "Couldn't find BUILD_ROOT"
     let buildDir = buildRoot <> "/build/contracts"
     results <- ExceptT $ runMigration bloc admin yml cDir
+    _ <- liftIO $ removePathForcibly buildDir
     artifacts <- forM (results^.migrationContractList) $ getContractAbis bloc buildDir
     liftIO $ forM_ (mconcat artifacts) writeArtifact
   case eRes of

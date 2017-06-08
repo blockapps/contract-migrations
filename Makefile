@@ -16,6 +16,7 @@ CONTRACTS_YAML ?= "./contracts-iam.yaml"
 CONTRACTS_DIR ?= "./contracts-iam"
 
 BUILD_ROOT ?= "."
+VERBOSE_CONTRACT_UPLOAD ?= "SILENT"
 
 deploy-contracts:
 		BLOC_SCHEME=$(BLOC_SCHEME) \
@@ -28,6 +29,7 @@ deploy-contracts:
     CONTRACTS_DIR=$(CONTRACTS_DIR) \
     CONTRACTS_YAML=$(CONTRACTS_YAML) \
     BUILD_ROOT=$(BUILD_ROOT) \
+    VERBOSE_CONTRACT_UPLOAD=$(VERBOSE_CONTRACT_UPLOAD) \
     upload-contracts
 
 test-ci:

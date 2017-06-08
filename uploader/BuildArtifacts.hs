@@ -39,7 +39,7 @@ getContractAbis env dir contract = do
   let (Contract cName _) = contract
   contracts <- fmapLT liftServantErr . ExceptT $ runClientM (Bloc.getContractsData cName) env
   let contracts' = filter isNamedAndNotLatest contracts
-  liftIO . print $ "Getting ABIs for: " <> (T.intercalate "," $ map maybeNamedToText contracts')
+  liftIO . print $ "Getting ABIs for: " <> (T.intercalate ", " $ map maybeNamedToText contracts')
   forM contracts' $ \c -> do
     let ContractName cNameText = cName
         depNameText = maybeNamedToText c
