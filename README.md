@@ -120,19 +120,39 @@ If you would like to index the `StorageBlobs` you will be deploying, your `contr
 In general, the `index` field will contain a list of contracts that you would like to index. These contracts should all be dependencies of the _entry point contract_, i.e. the one listed in the `name` field, so that when the contracts are gathered and uploaded they appear in that uploaded source code. 
 
 ## Command Line Tool
-The command line tool is useful if you want to upload your contracts outside of an application, whether it's for expirementing or to view the generated ABIs. Assume as above that you have a `contracts` directory in your project where all of your contracts live, and a `contracts.yaml` file in your project root as above. If you inspect the `Makefile` you will see all of the environment variables which need to be filled out in order to use the tool, they are pretty self explanatory. You can then run `make deploy-contracts`, which will upload and index the contracts according to you `contracts.yaml` file, and write all of the build artifacts to a new directory based in `BUILD_ROOT`. **Warning** This will overwrite any existing directory named `build` in `BUILD_ROOT`. The newly written directory is structured as follows:
+The command line tool is useful if you want to upload your contracts outside of an application, whether it's for expirementing or to view the generated ABIs. Assume as above that you have a `contracts` directory in your project where all of your contracts live, and a `contracts.yaml` file in your project root as above. If you inspect the `Makefile` you will see all of the environment variables which need to be filled out in order to use the tool, they are pretty self explanatory. You can then run `make deploy-contracts`, which will upload and index the contracts according to you `contracts.yaml` file, and write all of the build artifacts to a new directory based in `BUILD_ROOT`. **Warning** This will overwrite any existing directory named `build` in `BUILD_ROOT`.
+
+The 0.0.1 release comes with a pre-templated contract. The project layout is as follows:
+
+```
+/contracts-uploader
+  - Makefile
+  - contract-uploader
+  - contracts.yaml
+  - /contracts
+    - SimpleCounter.sol
+```
+
+with the following `contracts.yaml` file
+
+```yaml
+- file: SimpleCounter.sol
+  name: SimpleCounter
+  args:
+    _initialAmount: 0
+  index:
+    - SimpleCounter
+
+```
+
+When you run `make deploy-contracts`, you should see logs indicating the successful upload and writing of build artifacts. The result will be a newly created `build` directory with the following structure.
 
 ```
 /build
   - admin.json
   - /contracts
-    - /ContractA
-      - ContractA1.json
-      - ContractA2.json
-      ...
-    - /ContractB
-      - ContractB1.json
-      ...
+    - /SimpleCounter
+      - SimpleCounter.json
 ```
 
-The `admin.json` file contains the address of the newly created admin account-- the account which owns the contracts. The username, password pair for this address is what was specified in the `Makefile`. The `contracts` directory contains subdirectories for every contract you uploaded. So for example, if the upload of `ContractA` included contracts `ContractA1`, `ContractA1` as dependencies, all of these ABIs will be written to the `ContractA` directory.
+The `admin.json` file contains the address of the newly created admin account-- the account which owns the contracts. The username, password pair for this address is what was specified in the `Makefile`. The `contracts` directory contains subdirectories for every contract you uploaded, with the ABIs written as `json` in the appropriate directories.
