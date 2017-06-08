@@ -46,6 +46,8 @@ import           System.Environment           (lookupEnv)
 import           System.FilePath.Find         (always, contains, find)
 
 import           Text.ParserCombinators.ReadP
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
+
 --------------------------------------------------------------------------------
 
 data MigrationError = ParseError Text
@@ -58,6 +60,16 @@ liftServantErr :: ServantError -> MigrationError
 liftServantErr e = case e of
   FailureResponse _ _ bdy -> BlocError $ cs bdy
   _ -> BlocError "Unknown Bloc Error, check bloc logs."
+
+--------------------------------------------------------------------------------
+-- | Formatting
+--------------------------------------------------------------------------------
+
+putSuccess :: (Show a, MonadIO m) => a -> m ()
+putSuccess = liftIO . print . PP.green . PP.pretty . show
+
+putFailure :: (Show a, MonadIO m) => a -> m ()
+putFailure = liftIO . print . PP.red . PP.pretty . show
 
 --------------------------------------------------------------------------------
 -- | Manage Admin
@@ -178,7 +190,7 @@ grabImports sourceCode =
          case readP_to_S importsParser importString of
            ((imp,_) : _) -> return imp
            other -> do
-             liftIO $ print other
+             putFailure other
              throwError . ParseError $ "Could not parse import statement: " <>
                    T.pack importString
 
@@ -284,14 +296,14 @@ deployContract env admin adminAddr contract verbose =
        when (isJust $ postcompilerequestSearchable indexContractReq) $ do
          let searchableList = fromMaybe [] $ postcompilerequestSearchable indexContractReq
          _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
-         liftIO . print $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
+         putSuccess $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
        eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr postContractReq) env
        case eresp of
          Left serr -> do
            msg <- message serr
            return . Left $ msg
          Right success -> do
-           liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
+           putSuccess $ "Deployed Contract: " <> contract^.contractUploadName
            when (verbose == DEBUG) $
              liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
            return . Right $ success
@@ -347,8 +359,9 @@ runMigration env admin contractYaml contractsDir = runExceptT $ do
   adminAddress <- createAdmin env admin
   verbose <- liftIO $ maybe SILENT read <$> lookupEnv "VERBOSE_CONTRACT_UPLOAD"
   liftIO . print $ "Verbose Level: " <> show verbose
-  liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
-  liftIO . print $ ("Deploying Contracts" :: String)
+  putSuccess $ "Admin created! Admin Address: " <> addressString adminAddress
+  putSuccess $ ("Deploying Contracts" :: String)
   contracts <- deployContracts env admin adminAddress contractYaml contractsDir verbose
-  liftIO $ print ("Successfully Depployed Contracts" :: String)
+  putSuccess ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress contracts
+
