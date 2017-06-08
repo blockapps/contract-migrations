@@ -356,11 +356,11 @@ runMigration :: ClientEnv
              -> FilePath -- ^ localtion of contracts dir
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml contractsDir = runExceptT $ do
-  adminAddress <- createAdmin env admin
   verbose <- liftIO $ maybe SILENT read <$> lookupEnv "VERBOSE_CONTRACT_UPLOAD"
   liftIO . print $ "Verbose Level: " <> show verbose
+  adminAddress <- createAdmin env admin
   putSuccess $ "Admin created! Admin Address: " <> addressString adminAddress
-  putSuccess $ ("Deploying Contracts" :: String)
+  liftIO . print $ ("Deploying Contracts" :: String)
   contracts <- deployContracts env admin adminAddress contractYaml contractsDir verbose
   putSuccess ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress contracts
