@@ -11,11 +11,11 @@
 
 module BlocMigrations where
 
-import           BlockApps.Strato.Types        (Strung(..))
 import           BlockApps.Bloc21.API
 import qualified BlockApps.Bloc21.Client      as Bloc
 import           BlockApps.Ethereum           (Address, addressString)
 import           BlockApps.Solidity.ArgValue
+import           BlockApps.Strato.Types       (Strung (..))
 import           Control.Error
 import           Control.Lens                 (use, (%=), (&), (.=), (.~), (^.),
                                                _1, _2)
@@ -31,24 +31,45 @@ import           Data.Map.Strict              (Map)
 import qualified Data.Map.Strict              as Map
 import           Data.Monoid                  ((<>))
 import qualified Data.Set                     as S
+import           Data.String.Conversions      (cs)
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as T
 import qualified Data.Text.IO                 as T
 import           Data.Yaml                    (FromJSON, (.:), (.:?))
 import qualified Data.Yaml                    as Y
+import           Network.HTTP.Client          (defaultManagerSettings,
+                                               newManager)
 import           Numeric.Natural
 import           Servant.Client
 import           System.Environment           (lookupEnv)
 import           System.FilePath.Find         (always, contains, find)
 
 import           Text.ParserCombinators.ReadP
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
+
 --------------------------------------------------------------------------------
 
 data MigrationError = ParseError Text
                     | BlocError Text
+                    | EnvError Text
                     | FindContractError Text
                     deriving (Show)
+
+liftServantErr :: ServantError -> MigrationError
+liftServantErr e = case e of
+  FailureResponse _ _ bdy -> BlocError $ cs bdy
+  _ -> BlocError "Unknown Bloc Error, check bloc logs."
+
+--------------------------------------------------------------------------------
+-- | Formatting
+--------------------------------------------------------------------------------
+
+putSuccess :: (Show a, MonadIO m) => a -> m ()
+putSuccess = liftIO . print . PP.green . PP.pretty . show
+
+putFailure :: (Show a, MonadIO m) => a -> m ()
+putFailure = liftIO . print . PP.red . PP.pretty . show
 
 --------------------------------------------------------------------------------
 -- | Manage Admin
@@ -61,23 +82,34 @@ data AdminConfig =
               } deriving (Eq, Show)
 makeLenses ''AdminConfig
 
-getAdminFromEnv :: IO (Either Text AdminConfig)
-getAdminFromEnv = runExceptT $ do
-  usrName <- UserName . T.pack <$> (lookupEnv "BLOC_ADMIN_USERNAME" !? "Could Not Find BLOC_ADMIN_USERNAME.")
-  pwd <- Password . T.encodeUtf8 . T.pack <$> (lookupEnv "BLOC_ADMIN_PASSWORD" !? "Could Not Find BLOC_ADMIN_PASSWORD.")
-  faucetOn <- read <$> (lookupEnv "BLOC_ADMIN_FAUCET" !? "Could not find BLOC_ADMIN_FAUCET.")
+getAdminFromEnv :: ExceptT MigrationError IO AdminConfig
+getAdminFromEnv = do
+  usrName <- UserName . T.pack <$> (lookupEnv "BLOC_ADMIN_USERNAME" !? EnvError "Could Not Find BLOC_ADMIN_USERNAME.")
+  pwd <- Password . T.encodeUtf8 . T.pack <$> (lookupEnv "BLOC_ADMIN_PASSWORD" !? EnvError "Could Not Find BLOC_ADMIN_PASSWORD.")
+  faucetOn <- read <$> (lookupEnv "BLOC_ADMIN_FAUCET" !? EnvError "Could not find BLOC_ADMIN_FAUCET.")
   return $ AdminConfig usrName pwd faucetOn
+
+makeBlocEnv :: ExceptT MigrationError IO ClientEnv
+makeBlocEnv = do
+    scheme <- (lookupEnv "BLOC_SCHEME" !? EnvError "Couldn't find BLOC_SCHEME") >>= mkScheme
+    host <- lookupEnv "BLOC_HOST" !? EnvError "Couldn't find BLOC_HOST"
+    port <- fmap read (lookupEnv "BLOC_PORT" !? EnvError "Couldn't find BLOC_PORT")
+    path <- lookupEnv "BLOC_PATH" !? EnvError "Couldn't find BLOC_PATH"
+    mgr <- liftIO $ newManager defaultManagerSettings
+    return $ ClientEnv mgr (BaseUrl scheme host port path)
+  where
+    mkScheme :: String -> ExceptT MigrationError IO Scheme
+    mkScheme "Http"  = return Http
+    mkScheme "Https" = return Https
+    mkScheme _       = throwE . EnvError $ "Scheme must be either Http or Https."
 
 createAdmin :: ClientEnv
             -> AdminConfig
             -> ExceptT MigrationError IO Address
 createAdmin clientEnv admin =
     let postUsersUserRequest = (admin^.adminPassword)
-    in ExceptT $ fmap (first message) $
+    in ExceptT $ first liftServantErr <$>
          runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) clientEnv
-  where
-    message :: ServantError -> MigrationError
-    message = BlocError . T.pack . show
 
 --------------------------------------------------------------------------------
 -- | Parsing Yaml files for Contract info
@@ -147,18 +179,18 @@ importsParser = fmap last $ do
    between quoter quoter $
      sepBy1 (many1 (satisfy (/= ';'))) (char '/')
   where
-    quoter = satisfy (flip elem ("'\"" :: String))
+    quoter =  satisfy (`elem` ("'\"" :: String))
 
 -- | get all the dependencies for a solidity file.
 grabImports :: Text -> ExceptT MigrationError IO [FilePath]
 grabImports sourceCode =
     let ls = T.lines sourceCode
         importStrings = map T.unpack $ takeWhile isImportStatement ls
-    in forM importStrings $ \importString -> do
+    in forM importStrings $ \importString ->
          case readP_to_S importsParser importString of
            ((imp,_) : _) -> return imp
            other -> do
-             liftIO $ print other
+             putFailure other
              throwError . ParseError $ "Could not parse import statement: " <>
                    T.pack importString
 
@@ -187,7 +219,7 @@ grabDependencyGraph _main fps contractsDir = do
       nbrs <- lift $ traverse grabNeighbors filepaths
       edgeSet %= \known -> foldr addEdges known nbrs
       visited <- use visitedVertices
-      let visited' = foldr S.insert visited (map fst nbrs)
+      let visited' = foldr (S.insert . fst) visited nbrs
           nextVertices = S.toList $ S.unions (map snd nbrs) `S.difference` visited'
       case nextVertices of
         [] -> return ()
@@ -224,9 +256,9 @@ withSourceCode contractsDir c = do
     ds -> do
       let _main = c^.contractUploadSource
       g <- grabDependencyGraph _main ds contractsDir
-      let orderedFileIndices = (G.topSort (g^._1))
+      let orderedFileIndices = G.topSort (g^._1)
           vertexMapping = g^._2
-          orderedFiles = reverse $ map (\v -> (vertexMapping v) ^._1) orderedFileIndices
+          orderedFiles = reverse $ map (\v -> vertexMapping v ^._1) orderedFileIndices
       fullSource <- readAndTrimFiles orderedFiles contractsDir
       return $ c & contractUploadSource .~ fullSource
 
@@ -241,7 +273,7 @@ data Contract =
 makeLenses ''Contract
 
 -- |  deploys a contract.
-deployContract ::  ClientEnv
+deployContract :: ClientEnv
                -> AdminConfig
                -> Address -- ^ the admin's address
                -> ContractForUpload 'AsCode
@@ -264,24 +296,25 @@ deployContract env admin adminAddr contract verbose =
        when (isJust $ postcompilerequestSearchable indexContractReq) $ do
          let searchableList = fromMaybe [] $ postcompilerequestSearchable indexContractReq
          _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
-         liftIO . print $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
+         putSuccess $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
        eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr postContractReq) env
        case eresp of
          Left serr -> do
            msg <- message serr
            return . Left $ msg
          Right success -> do
-           liftIO . print $ "Deployed Contract: " <> contract^.contractUploadName
+           putSuccess $ "Deployed Contract: " <> contract^.contractUploadName
            when (verbose == DEBUG) $
              liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
            return . Right $ success
   where
     message :: ServantError -> IO MigrationError
     message e = do
-      _ <- liftIO . putStrLn . show $ e
+      let BlocError eTxt = liftServantErr $ e
       return $ BlocError $ mconcat [ "Failed to deploy -- ["
                                    , contract ^. contractUploadName
                                    , "]-- "
+                                   , eTxt
                                    ]
 
 -- | deploy all the contracts listed in the contracts.yaml file.
@@ -296,7 +329,7 @@ deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
   ecs <- liftIO $ Y.decodeFileEither contractYaml
   case ecs of
     Left e -> throwError . ParseError . T.pack . show $ e
-    Right cs -> forM cs $ \c -> do
+    Right contracts -> forM contracts $ \c -> do
       c' <- withSourceCode contractsDir c
       addr <- deployContract env admin ownerAddr c' verbose
       return $ Contract (ContractName $ c^.contractUploadName) addr
@@ -323,11 +356,12 @@ runMigration :: ClientEnv
              -> FilePath -- ^ localtion of contracts dir
              -> IO (Either MigrationError MigrationResult)
 runMigration env admin contractYaml contractsDir = runExceptT $ do
-  adminAddress <- createAdmin env admin
-  verbose <- liftIO $ lookupEnv "VERBOSE_CONTRACT_UPLOAD" >>= maybe (return SILENT) (return . read)
+  verbose <- liftIO $ maybe SILENT read <$> lookupEnv "VERBOSE_CONTRACT_UPLOAD"
   liftIO . print $ "Verbose Level: " <> show verbose
-  liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
+  adminAddress <- createAdmin env admin
+  putSuccess $ "Admin created! Admin Address: " <> addressString adminAddress
   liftIO . print $ ("Deploying Contracts" :: String)
-  cs <- deployContracts env admin adminAddress contractYaml contractsDir verbose
-  liftIO $ print ("Successfully Depployed Contracts" :: String)
-  return $ MigrationResult adminAddress cs
+  contracts <- deployContracts env admin adminAddress contractYaml contractsDir verbose
+  putSuccess ("Successfully Depployed Contracts" :: String)
+  return $ MigrationResult adminAddress contracts
+

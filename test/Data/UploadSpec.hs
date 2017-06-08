@@ -1,13 +1,12 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Data.UploadSpec (spec) where
 
-import           BlockApps.Strato.Types
 import           BlockApps.Bloc21.API        hiding (mockBloc)
 import           BlockApps.Ethereum
+import           BlockApps.Strato.Types
 import           Control.Concurrent
 import           Control.Monad.Logger
 
@@ -38,17 +37,19 @@ spec = do
   uploadSpec
 
 adminSpec :: Spec
-adminSpec = do
-  describe "can make an admin user" $ do
-    around (testWithApplication . return $ mockBloc) $ do
+adminSpec =
+
+  describe "can make an admin user" $
+    around (testWithApplication . return $ mockBloc) $
       it "can make an admin user" $ \port -> do
         bloc <- mockBlocClient port
         eAddr <- runExceptT $ createAdmin bloc adminConfig
         eAddr `shouldSatisfy` isRight
 
 uploadSpec :: Spec
-uploadSpec = do
-  describe "it can upload contracts" $ do
+uploadSpec =
+
+  describe "it can upload contracts" $
     around (testWithApplication . return $ mockBloc) $ do
       it "can upload a single contract" $ \port -> do
         bloc <- mockBlocClient port
@@ -58,9 +59,9 @@ uploadSpec = do
       it "can upload a many contracts" $ \port -> do
         bloc <- mockBlocClient port
         Right addr <- runExceptT $ createAdmin bloc adminConfig
-        newCs <- (runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" SILENT)
+        newCs <- runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" SILENT
         let (Right newCs') = newCs
-        (newCs' !! 0) ^. contractName  `shouldBe` "IdentityAccessManager"
+        Prelude.head newCs' ^. contractName  `shouldBe` "IdentityAccessManager"
 
 --------------------------------------------------------------------------------
 -- utils
