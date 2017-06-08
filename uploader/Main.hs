@@ -23,6 +23,8 @@ main = do
     let buildDir = buildRoot <> "/build/contracts"
     results <- ExceptT $ runMigration bloc admin yml cDir
     _ <- liftIO $ removePathForcibly buildDir
+    liftIO . print $ ("Writing Admin Details" :: String)
+    _ <- liftIO $ writeAdmin buildDir (results^.migrationAdminAddress)
     artifacts <- forM (results^.migrationContractList) $ getContractAbis bloc buildDir
     liftIO $ forM_ (mconcat artifacts) writeArtifact
   case eRes of

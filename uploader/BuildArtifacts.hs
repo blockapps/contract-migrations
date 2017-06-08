@@ -14,7 +14,7 @@ import           Control.Monad           (forM)
 import           Control.Lens            ((^.))
 import           Control.Lens.TH         (makeLenses)
 import           Control.Monad.IO.Class
-import           Data.Aeson              (encode)
+import           Data.Aeson              (encode, object, (.=))
 import qualified Data.ByteString.Lazy    as BSL
 import           Data.Monoid             ((<>))
 import           Data.String.Conversions (cs)
@@ -62,3 +62,9 @@ writeArtifact :: BuildArtifact -> IO ()
 writeArtifact ba = do
  _ <- createDirectoryIfMissing True $ ba ^. buildPath
  BSL.writeFile (ba ^. buildPath <> ba^.buildFile) $ ba^.buildArtifact
+
+writeAdmin :: FilePath -> Address -> IO ()
+writeAdmin dir admin = do
+  let adminFile = dir <> "/admin.json"
+  _ <- createDirectoryIfMissing True dir
+  BSL.writeFile adminFile . encode $ object ["adminAddress" .= admin]
