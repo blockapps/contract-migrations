@@ -31,6 +31,7 @@ import           Data.Map.Strict              (Map)
 import qualified Data.Map.Strict              as Map
 import           Data.Monoid                  ((<>))
 import qualified Data.Set                     as S
+import           Data.String.Conversions      (cs)
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as T
@@ -52,6 +53,11 @@ data MigrationError = ParseError Text
                     | EnvError Text
                     | FindContractError Text
                     deriving (Show)
+
+liftServantErr :: ServantError -> MigrationError
+liftServantErr e = case e of
+  FailureResponse _ _ bdy -> BlocError $ cs bdy
+  _ -> BlocError "Unknown Bloc Error, check bloc logs."
 
 --------------------------------------------------------------------------------
 -- | Manage Admin
@@ -90,11 +96,8 @@ createAdmin :: ClientEnv
             -> ExceptT MigrationError IO Address
 createAdmin clientEnv admin =
     let postUsersUserRequest = (admin^.adminPassword)
-    in ExceptT $ first message <$>
+    in ExceptT $ first liftServantErr <$>
          runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) clientEnv
-  where
-    message :: ServantError -> MigrationError
-    message = BlocError . T.pack . show
 
 --------------------------------------------------------------------------------
 -- | Parsing Yaml files for Contract info
@@ -258,7 +261,7 @@ data Contract =
 makeLenses ''Contract
 
 -- |  deploys a contract.
-deployContract ::  ClientEnv
+deployContract :: ClientEnv
                -> AdminConfig
                -> Address -- ^ the admin's address
                -> ContractForUpload 'AsCode
@@ -295,10 +298,11 @@ deployContract env admin adminAddr contract verbose =
   where
     message :: ServantError -> IO MigrationError
     message e = do
-      _ <- print e
+      let BlocError eTxt = liftServantErr $ e
       return $ BlocError $ mconcat [ "Failed to deploy -- ["
                                    , contract ^. contractUploadName
                                    , "]-- "
+                                   , eTxt
                                    ]
 
 -- | deploy all the contracts listed in the contracts.yaml file.
@@ -313,7 +317,7 @@ deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
   ecs <- liftIO $ Y.decodeFileEither contractYaml
   case ecs of
     Left e -> throwError . ParseError . T.pack . show $ e
-    Right cs -> forM cs $ \c -> do
+    Right contracts -> forM contracts $ \c -> do
       c' <- withSourceCode contractsDir c
       addr <- deployContract env admin ownerAddr c' verbose
       return $ Contract (ContractName $ c^.contractUploadName) addr
@@ -345,6 +349,6 @@ runMigration env admin contractYaml contractsDir = runExceptT $ do
   liftIO . print $ "Verbose Level: " <> show verbose
   liftIO . print $ "Admin created! Admin Address: " <> addressString adminAddress
   liftIO . print $ ("Deploying Contracts" :: String)
-  cs <- deployContracts env admin adminAddress contractYaml contractsDir verbose
+  contracts <- deployContracts env admin adminAddress contractYaml contractsDir verbose
   liftIO $ print ("Successfully Depployed Contracts" :: String)
-  return $ MigrationResult adminAddress cs
+  return $ MigrationResult adminAddress contracts

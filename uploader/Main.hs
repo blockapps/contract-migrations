@@ -2,12 +2,10 @@
 
 module Main where
 
-import qualified Data.ByteString.Lazy as BSL
-import           Data.Aeson (encode, object, (.=))
 import           BlocMigrations
 import           BuildArtifacts
 import           Control.Error
-import           Control.Lens ((^.), _1, _2)
+import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Monoid
 import           Control.Monad.IO.Class
@@ -25,12 +23,8 @@ main = do
     buildRoot <- lookupEnv "BUILD_ROOT" !? EnvError "Couldn't find BUILD_ROOT"
     let buildDir = buildRoot <> "/build/contracts"
     results <- ExceptT $ runMigration bloc admin yml cDir
-    artifacts <- forM (results^.migrationContractList) $ getContractAbi bloc buildDir
-    return (results^.migrationAdminAddress, buildDir, artifacts)
+    artifacts <- forM (results^.migrationContractList) $ getContractAbis bloc buildDir
+    liftIO $ forM_ (mconcat artifacts) writeArtifact
   case eRes of
     Left e -> print e
-    Right (addr, buildDir, artifacts) -> do
-      _ <- makeBuildDir buildDir
-      _ <- BSL.writeFile "admin" . encode . object $ ["adminAddress" .= addr]
-      _ <- forM_ artifacts $ \artifact -> BSL.writeFile (artifact ^. _1) (artifact^. _2)
-      print ("Build Artifacts written!" :: String)
+    Right () -> print ("Build Artifacts written!" :: String)
