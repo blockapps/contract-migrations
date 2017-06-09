@@ -63,24 +63,24 @@ fileParserSpec :: Spec
 fileParserSpec =
   describe "it can gather and files into blob based on imports" $ do
     it "can find import statements" $ do
-      Right code <- runExceptT $ grabSourceCode "./contracts" "Simple.Sol"
+      Right code <- runExceptT $ grabSourceCode "." "Simple.Sol"
       Right len <- runExceptT $ L.length <$>  grabImports code
       len `shouldBe` 4
     it "can grab a dependency set with the right size" $ do
-      eimps <- runExceptT $ grabSourceCode "./contracts" "Simple.Sol" >>= grabImports
+      eimps <- runExceptT $ grabSourceCode "." "Simple.Sol" >>= grabImports
       eimps `shouldSatisfy` isRight
       let Right imps = eimps
-      eGdata <- runExceptT $ grabDependencyGraph "Simple.Sol" imps "./contracts"
+      eGdata <- runMigrator config $ grabDependencyGraph "Simple.Sol" imps
       ((^. _1) <$> eGdata) `shouldSatisfy` isRight
       let Right (g, _, _) = eGdata
       (L.length . G.vertices $ g) `shouldBe` 8
     it "can properly trim off imports of one file" $ do
-      Right t <- runExceptT . fmap T.strip $ readAndTrimFiles ["Simple.Sol"] "."
+      Right t <- runMigrator config $ fmap T.strip $ readAndTrimFiles ["Simple.Sol"]
       t' <- T.strip <$> T.readFile "./contracts/SimpleTrimmed.sol"
       T.strip t `shouldBe` T.strip t'
     it "can properly read, trim, and concat two files" $ do
-      Right output <- runExceptT . fmap T.strip $ readAndTrimFiles
-        ["Simple.Sol", "IdentityAccessManager.sol"] "."
+      Right output <- fmapR T.strip $ runMigrator config $ readAndTrimFiles
+        ["Simple.Sol", "IdentityAccessManager.sol"]
       t <- T.readFile "./contracts/Simple.sol"
       t' <- T.readFile "./contracts/IdentityAccessManager.sol"
       T.strip output `shouldBe` (T.strip . T.unlines . map (T.strip . trimDependencies) $ [t,t'])
@@ -128,3 +128,11 @@ exampleList = [ex1, ex2]
       , _contractUploadIndexed = Nothing
       }
     ex2 = ContractForUpload "IdentityAccessManager" "IdentityAccessManager.sol" Nothing Nothing Nothing Nothing
+
+admnConfig :: AdminConfig
+admnConfig = AdminConfig "Admin" "Password" True
+
+config :: MigrationConfig
+config =
+  let cf = ContractFileConfig "./contracts/contracts.yaml" "./contracts"
+  in MigrationConfig admnConfig undefined SILENT cf
