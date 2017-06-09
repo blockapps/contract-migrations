@@ -1,14 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Main where
 
+import           BlockApps.Ethereum (stringAddress, Address)
 import           BlocMigrations
 import           BuildArtifacts
 import qualified Control.Error as E
+import           Control.Monad.Except
 import           Control.Lens ((^.))
-import           Control.Monad
 import           Data.Monoid
-import           Control.Monad.IO.Class
 import           System.Directory (removePathForcibly)
 import           System.Environment (lookupEnv)
 
@@ -23,7 +24,8 @@ main = do
     Left e -> putFailure e
     Right (cfg, buildDir) -> do
       eMigrationRes <- runMigrator cfg $ do
-        results <- runMigration
+        madminAddr <- tryFindAddress
+        results <- runMigration madminAddr
         _ <- liftIO $ removePathForcibly buildDir
         liftIO . print $ ("Writing Admin Details" :: String)
         _ <- liftIO $ writeAdmin buildDir (results^.migrationAdminAddress)
@@ -32,3 +34,17 @@ main = do
       case eMigrationRes of
         Left e -> putFailure e
         Right () -> putSuccess ("Build Artifacts written!" :: String)
+
+tryFindAddress :: ( MonadError MigrationError m
+                  , MonadIO m
+                  )
+               => m (Maybe Address)
+tryFindAddress = do
+  maddrString <- liftIO $ lookupEnv "ADMIN_ADDRESS"
+  case maddrString of
+    Nothing -> return Nothing
+    Just addrString -> case stringAddress addrString of
+      Nothing -> throwError . EnvError $ "Could not parse ADMIN_ADDRESS as address"
+      Just a -> do
+        _ <- putSuccess $ "ADMIN_ADDRESS found: " <> addrString
+        return . Just $ a

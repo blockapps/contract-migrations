@@ -443,12 +443,18 @@ runMigration :: ( MonadError MigrationError m
                 , MonadIO m
                 , MonadReader MigrationConfig m
                 )
-             => m MigrationResult
-runMigration = do
+             => Maybe Address
+             -> m MigrationResult
+runMigration mAddr = do
   verbose <- view verboseMode
   liftIO . print $ "Verbose Level: " <> show verbose
-  adminAddress <- createAdmin
-  putSuccess $ "Admin created! Admin Address: " <> addressString adminAddress
+  adminAddress <- case mAddr of
+    Just addr -> return addr
+    Nothing -> do
+      liftIO . print $ ("Couldn't find ADMIN_ADDRESS, creating new admin..." :: String)
+      addr <- createAdmin
+      _ <- putSuccess $ "Admin created! Admin Address: " <> addressString addr
+      return addr
   liftIO . print $ ("Deploying Contracts" :: String)
   contracts <- deployContracts adminAddress
   putSuccess ("Successfully Depployed Contracts" :: String)
