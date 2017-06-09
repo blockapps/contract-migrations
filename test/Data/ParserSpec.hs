@@ -80,7 +80,7 @@ fileParserSpec =
       (L.length . G.vertices $ g) `shouldBe` 8
 
     it "can properly trim off imports of one file" $ do
-      Right t <- runMigrator config $ fmap T.strip $ readAndTrimFiles ["Simple.Sol"]
+      Right t <- runMigrator config . fmap T.strip . readAndTrimFiles $ ["Simple.Sol"]
       t' <- T.strip <$> T.readFile "./contracts/SimpleTrimmed.sol"
       T.strip t `shouldBe` T.strip t'
 

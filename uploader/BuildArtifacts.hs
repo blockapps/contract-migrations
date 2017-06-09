@@ -1,6 +1,6 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 module BuildArtifacts where
 
@@ -10,31 +10,31 @@ import           BlockApps.Bloc21.API
 import qualified BlockApps.Bloc21.Client as Bloc
 import           BlockApps.Ethereum
 import           BlockApps.Solidity.Xabi (MaybeNamed (..))
+import           Control.Lens            (view, (^.))
+import           Control.Lens.TH         (makeLenses)
 import           Control.Monad           (forM)
 import           Control.Monad.Except
-import           Control.Monad.Reader
-import           Control.Lens            ((^.), view)
-import           Control.Lens.TH         (makeLenses)
 import           Control.Monad.IO.Class  (liftIO)
+import           Control.Monad.Reader
 import           Data.Aeson              (encode, object, (.=))
 import qualified Data.ByteString.Lazy    as BSL
 import           Data.Monoid             ((<>))
 import           Data.String.Conversions (cs)
 import           Data.Text               (Text)
-import qualified Data.Text              as T
+import qualified Data.Text               as T
 import           Servant.Client          (runClientM)
 import           System.Directory        (createDirectoryIfMissing)
 
 --------------------------------------------------------------------------------
 
 maybeNamedToText :: MaybeNamed Address -> Text
-maybeNamedToText (Named n) = n
+maybeNamedToText (Named n)   = n
 maybeNamedToText (Unnamed a) = cs . addressString $ a
 
 isNamedAndNotLatest :: MaybeNamed a -> Bool
 isNamedAndNotLatest a = case a of
   Named a' -> if a' == "Latest" then False else True
-  _ -> False
+  _        -> False
 
 getContractAbis :: ( MonadError MigrationError m
                    , MonadIO m
@@ -49,7 +49,7 @@ getContractAbis dir contract = do
   contracts <- do
     ecs <- liftIO $ runClientM (Bloc.getContractsData cName) env
     case ecs of
-      Left e -> throwError . liftServantErr $ e
+      Left e     -> throwError . liftServantErr $ e
       Right cnts -> return cnts
   let contracts' = filter isNamedAndNotLatest contracts
   liftIO . print $ "Getting ABIs for: " <> (T.intercalate ", " $ map maybeNamedToText contracts')
@@ -59,15 +59,15 @@ getContractAbis dir contract = do
     deets <- do
       edeets <- liftIO $ runClientM (Bloc.getContractsContract cName c) env
       case edeets of
-        Left e -> throwError . liftServantErr $ e
+        Left e   -> throwError . liftServantErr $ e
         Right ds -> return ds
     let bp = dir <> "/" <> cs  cNameText <> "/"
         fp = cs depNameText <> ".json"
     return $ BuildArtifact bp fp $ encode deets
 
 data BuildArtifact =
-  BuildArtifact { _buildPath :: FilePath
-                , _buildFile :: FilePath
+  BuildArtifact { _buildPath     :: FilePath
+                , _buildFile     :: FilePath
                 , _buildArtifact :: BSL.ByteString
                 }
 

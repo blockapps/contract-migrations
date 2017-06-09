@@ -1,17 +1,17 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 
 module Main where
 
-import           BlockApps.Ethereum (stringAddress, Address)
+import           BlockApps.Ethereum   (Address, stringAddress)
 import           BlocMigrations
 import           BuildArtifacts
-import qualified Control.Error as E
+import qualified Control.Error        as E
+import           Control.Lens         ((^.))
 import           Control.Monad.Except
-import           Control.Lens ((^.))
 import           Data.Monoid
-import           System.Directory (removePathForcibly)
-import           System.Environment (lookupEnv)
+import           System.Directory     (removePathForcibly)
+import           System.Environment   (lookupEnv)
 
 main :: IO ()
 main = do
@@ -32,7 +32,7 @@ main = do
         artifacts <- forM (results^.migrationContractList) $ getContractAbis (buildDir <> "/contracts")
         liftIO $ forM_ (mconcat artifacts) writeArtifact
       case eMigrationRes of
-        Left e -> putFailure e
+        Left e   -> putFailure e
         Right () -> putSuccess ("Build Artifacts written!" :: String)
 
 tryFindAddress :: ( MonadError MigrationError m

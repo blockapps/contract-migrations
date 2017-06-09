@@ -37,7 +37,7 @@ adminSpec =
 
       it "can make an admin user" $ \port -> do
         let cfg = mkConfig port
-        eAddr <- runMigrator cfg $ createAdmin
+        eAddr <- runMigrator cfg createAdmin
         eAddr `shouldSatisfy` isRight
 
 uploadSpec :: Spec
@@ -48,13 +48,13 @@ uploadSpec =
 
       it "can upload a single contract" $ \port -> do
         let cfg = mkConfig port
-        Right addr <- runMigrator cfg $ createAdmin
-        cAddr <- runMigrator cfg $ (exampleUpload' >>= \c -> deployContract addr c)
+        Right addr <- runMigrator cfg createAdmin
+        cAddr <- runMigrator cfg (exampleUpload' >>= \c -> deployContract addr c)
         cAddr `shouldSatisfy` isRight
 
       it "can upload a many contracts" $ \port -> do
         let cfg = mkConfig port
-        Right addr <- runMigrator cfg $ createAdmin
+        Right addr <- runMigrator cfg createAdmin
         newCs <- runMigrator cfg $ deployContracts addr
         let (Right newCs') = newCs
         Prelude.head newCs' ^. contractName  `shouldBe` "IdentityAccessManager"

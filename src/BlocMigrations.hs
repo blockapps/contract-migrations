@@ -1,16 +1,16 @@
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE KindSignatures       #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE StandaloneDeriving   #-}
-{-# LANGUAGE TemplateHaskell      #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE KindSignatures             #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module BlocMigrations where
 
@@ -20,8 +20,8 @@ import           BlockApps.Ethereum           (Address, addressString)
 import           BlockApps.Solidity.ArgValue
 import           BlockApps.Strato.Types       (Strung (..))
 import qualified Control.Error                as E
-import           Control.Lens                 (use, (%=), (&), (.=), (.~), (^.),
-                                               _1, _2, view)
+import           Control.Lens                 (use, view, (%=), (&), (.=), (.~),
+                                               (^.), _1, _2)
 import           Control.Lens.TH              (makeLenses)
 import           Control.Monad                (forM)
 import           Control.Monad.Except
@@ -64,7 +64,7 @@ data MigrationError = ParseError Text
 liftServantErr :: ServantError -> MigrationError
 liftServantErr e = case e of
   FailureResponse _ _ bdy -> BlocError $ cs bdy
-  _ -> BlocError "Unknown Bloc Error, check bloc logs."
+  _                       -> BlocError "Unknown Bloc Error, check bloc logs."
 
 data AdminConfig =
   AdminConfig { _adminUsername :: UserName
@@ -79,14 +79,14 @@ data VerboseMode = DEBUG
 
 data ContractFileConfig =
   ContractFileConfig { _contractsYaml :: FilePath
-                     , _contractsDir :: FilePath
+                     , _contractsDir  :: FilePath
                      }
 makeLenses ''ContractFileConfig
 
 data MigrationConfig =
-  MigrationConfig { _adminConfig :: AdminConfig
-                  , _blocClient :: ClientEnv
-                  , _verboseMode :: VerboseMode
+  MigrationConfig { _adminConfig        :: AdminConfig
+                  , _blocClient         :: ClientEnv
+                  , _verboseMode        :: VerboseMode
                   , _contractFileConfig :: ContractFileConfig
                   }
 
@@ -103,7 +103,7 @@ runMigrator cfg = flip runReaderT cfg . runExceptT . runMigrator'
   ma <- m
   case ma of
     Nothing -> throwError e
-    Just a -> return a
+    Just a  -> return a
 
 --------------------------------------------------------------------------------
 -- | Formatting
@@ -125,10 +125,10 @@ getAdminFromEnv :: ( MonadError MigrationError m
                 => m AdminConfig
 getAdminFromEnv = do
   usrName <- UserName . T.pack <$>
-    ((liftIO $ lookupEnv "BLOC_ADMIN_USERNAME") !? EnvError "Could Not Find BLOC_ADMIN_USERNAME.")
+    liftIO (lookupEnv "BLOC_ADMIN_USERNAME") !? EnvError "Could Not Find BLOC_ADMIN_USERNAME."
   pwd <- Password . T.encodeUtf8 . T.pack <$>
-    (liftIO (lookupEnv "BLOC_ADMIN_PASSWORD") !? EnvError "Could Not Find BLOC_ADMIN_PASSWORD.")
-  faucetOn <- read <$> ((liftIO $ lookupEnv "BLOC_ADMIN_FAUCET") !? EnvError "Could not find BLOC_ADMIN_FAUCET.")
+    liftIO (lookupEnv "BLOC_ADMIN_PASSWORD") !? EnvError "Could Not Find BLOC_ADMIN_PASSWORD."
+  faucetOn <- read <$> liftIO (lookupEnv "BLOC_ADMIN_FAUCET") !? EnvError "Could not find BLOC_ADMIN_FAUCET."
   return $ AdminConfig usrName pwd faucetOn
 
 makeBlocEnv :: ( MonadError MigrationError m
@@ -136,10 +136,10 @@ makeBlocEnv :: ( MonadError MigrationError m
                )
             => m ClientEnv
 makeBlocEnv = do
-    scheme <- ((liftIO $ lookupEnv "BLOC_SCHEME") !? EnvError "Couldn't find BLOC_SCHEME") >>= mkScheme
-    host <- (liftIO $ lookupEnv "BLOC_HOST") !? EnvError "Couldn't find BLOC_HOST"
-    port <- read <$> ((liftIO $ lookupEnv "BLOC_PORT") !? EnvError "Couldn't find BLOC_PORT")
-    path <- (liftIO $ lookupEnv "BLOC_PATH") !? EnvError "Couldn't find BLOC_PATH"
+    scheme <- liftIO (lookupEnv "BLOC_SCHEME") !? EnvError "Couldn't find BLOC_SCHEME" >>= mkScheme
+    host <- liftIO  (lookupEnv "BLOC_HOST") !? EnvError "Couldn't find BLOC_HOST"
+    port <- read <$> liftIO (lookupEnv "BLOC_PORT") !? EnvError "Couldn't find BLOC_PORT"
+    path <- liftIO (lookupEnv "BLOC_PATH") !? EnvError "Couldn't find BLOC_PATH"
     mgr <- liftIO $ newManager defaultManagerSettings
     return $ ClientEnv mgr (BaseUrl scheme host port path)
   where
@@ -153,8 +153,8 @@ makeFileConfig :: ( MonadError MigrationError m
                   )
                => m ContractFileConfig
 makeFileConfig = do
-  yml <- (liftIO $ lookupEnv "CONTRACTS_YAML") !? EnvError "Couldn't find CONTRACTS_YAML"
-  cDir <- (liftIO $ lookupEnv "CONTRACTS_DIR") !? EnvError "Couldn't find CONTRACTS_DIR"
+  yml <- liftIO (lookupEnv "CONTRACTS_YAML") !? EnvError "Couldn't find CONTRACTS_YAML"
+  cDir <- liftIO (lookupEnv "CONTRACTS_DIR") !? EnvError "Couldn't find CONTRACTS_DIR"
   return $ ContractFileConfig yml cDir
 
 mkMigrationConfig :: ( MonadError MigrationError m
@@ -176,10 +176,10 @@ createAdmin :: ( MonadError MigrationError m
 createAdmin = do
     admin <- view adminConfig
     env <- view blocClient
-    let postUsersUserRequest = (admin^.adminPassword)
+    let postUsersUserRequest = admin^.adminPassword
     eresp <- liftIO $ runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) env
     case eresp of
-      Left e -> throwError . liftServantErr $ e
+      Left e     -> throwError . liftServantErr $ e
       Right addr -> return addr
 
 --------------------------------------------------------------------------------
@@ -403,12 +403,12 @@ deployContract adminAddr contract = do
   where
     message :: ServantError -> MigrationError
     message e =
-      let BlocError eTxt = liftServantErr $ e
+      let BlocError eTxt = liftServantErr e
       in BlocError $ mconcat [ "Failed to deploy -- ["
-                                   , contract ^. contractUploadName
-                                   , "]-- "
-                                   , eTxt
-                                   ]
+                             , contract ^. contractUploadName
+                             , "]-- "
+                             , eTxt
+                             ]
 
 -- | deploy all the contracts listed in the contracts.yaml file.
 deployContracts :: ( MonadError MigrationError m
