@@ -32,7 +32,9 @@ adminSpec :: Spec
 adminSpec =
 
   describe "can make an admin user" $
+
     around (testWithApplication . return $ mockBloc) $
+
       it "can make an admin user" $ \port -> do
         let cfg = mkConfig port
         eAddr <- runMigrator cfg $ createAdmin
@@ -43,11 +45,13 @@ uploadSpec =
 
   describe "it can upload contracts" $
     around (testWithApplication . return $ mockBloc) $ do
+
       it "can upload a single contract" $ \port -> do
         let cfg = mkConfig port
         Right addr <- runMigrator cfg $ createAdmin
         cAddr <- runMigrator cfg $ (exampleUpload' >>= \c -> deployContract addr c)
         cAddr `shouldSatisfy` isRight
+
       it "can upload a many contracts" $ \port -> do
         let cfg = mkConfig port
         Right addr <- runMigrator cfg $ createAdmin
