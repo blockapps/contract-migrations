@@ -16,7 +16,6 @@ import           Data.ByteString              (ByteString)
 import qualified Data.Graph                   as G
 import qualified Data.List                    as L
 import qualified Data.Map.Strict              as Map
-import qualified Data.Set                     as S
 import qualified Data.Text                    as T
 import qualified Data.Text.IO                 as T
 import           Data.Yaml
@@ -85,8 +84,9 @@ fileParserSpec =
       T.strip t `shouldBe` T.strip t'
 
     it "can properly read, trim, and concat two files" $ do
-      Right output <- fmapR T.strip $ runMigrator config $ readAndTrimFiles
-        ["Simple.Sol", "IdentityAccessManager.sol"]
+      eoutput <- runMigrator config $ readAndTrimFiles ["Simple.Sol", "IdentityAccessManager.sol"]
+      eoutput `shouldSatisfy` isRight
+      let Right output = eoutput
       t <- T.readFile "./contracts/Simple.sol"
       t' <- T.readFile "./contracts/IdentityAccessManager.sol"
       T.strip output `shouldBe` (T.strip . T.unlines . map (T.strip . trimDependencies) $ [t,t'])
