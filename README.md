@@ -6,8 +6,7 @@
 
 
 ## Getting Started
-This is a contract deployment tool meant to be used with other haskell projects that interact with `Bloc`.
-The expectations are something like this:
+This is a contract deployment tool meant to be used either as a library with other haskell projects that interact with `Bloc`, or as a standalone command line tool. The expectations are something like this:
 
 1. you should have a directory somewhere in your project where you keep all of your solidity contracts.
 2. you should have a `contracts.yaml` file somewhere in your project (recommended: top-level or in your contracts director)
@@ -145,7 +144,7 @@ with the following `contracts.yaml` file
 
 ```
 
-When you run `make deploy-contracts`, you should see logs indicating the successful upload and writing of build artifacts. The result will be a newly created `build` directory with the following structure.
+When you run `make deploy-contracts`, you should see logs indicating the successful upload and writing of build artifacts. If you did not specify the `ADMIN_ADDRESS` in the Makefile, a new admin account will be created for you when the script launches, and the uploaded contracts will be owned by this new address. The result of the command will be a newly created `build` directory with the following structure.
 
 ```
 /build
@@ -155,4 +154,4 @@ When you run `make deploy-contracts`, you should see logs indicating the success
       - SimpleCounter.json
 ```
 
-The `admin.json` file contains the address of the newly created admin account-- the account which owns the contracts. The username, password pair for this address is what was specified in the `Makefile`. The `contracts` directory contains subdirectories for every contract you uploaded, with the ABIs written as `json` in the appropriate directories.
+The `admin.json` file contains the address of the newly created admin account if a new one was created. The username, password pair for this address is what was specified in the `Makefile`. The `contracts` directory contains subdirectories for every contract you uploaded, with the ABIs written as `json` in the appropriate directories.
