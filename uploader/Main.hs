@@ -1,32 +1,50 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
+import           BlockApps.Ethereum   (Address, stringAddress)
 import           BlocMigrations
 import           BuildArtifacts
-import           Control.Error
-import           Control.Lens ((^.))
-import           Control.Monad
+import qualified Control.Error        as E
+import           Control.Lens         ((^.))
+import           Control.Monad.Except
 import           Data.Monoid
-import           Control.Monad.IO.Class
-import           System.Directory (removePathForcibly)
-import           System.Environment (lookupEnv)
+import           System.Directory     (removePathForcibly)
+import           System.Environment   (lookupEnv)
 
 main :: IO ()
 main = do
-  eRes <- runExceptT $ do
-    admin <- getAdminFromEnv
-    bloc <- makeBlocEnv
-    yml <- lookupEnv "CONTRACTS_YAML" !? EnvError "Couldn't find CONTRACTS_YAML"
-    cDir <- lookupEnv "CONTRACTS_DIR" !? EnvError "Couldn't find CONTRACTS_DIR"
-    buildRoot <- lookupEnv "BUILD_ROOT" !? EnvError "Couldn't find BUILD_ROOT"
+  eRes <- E.runExceptT $ do
+    cfg <- mkMigrationConfig
+    buildRoot <- lookupEnv "BUILD_ROOT" E.!? EnvError "Couldn't find BUILD_ROOT"
     let buildDir = buildRoot <> "/build"
-    results <- ExceptT $ runMigration bloc admin yml cDir
-    _ <- liftIO $ removePathForcibly buildDir
-    liftIO . print $ ("Writing Admin Details" :: String)
-    _ <- liftIO $ writeAdmin buildDir (results^.migrationAdminAddress)
-    artifacts <- forM (results^.migrationContractList) $ getContractAbis bloc (buildDir <> "/contracts")
-    liftIO $ forM_ (mconcat artifacts) writeArtifact
+    return (cfg, buildDir)
   case eRes of
     Left e -> putFailure e
-    Right () -> putSuccess ("Build Artifacts written!" :: String)
+    Right (cfg, buildDir) -> do
+      eMigrationRes <- runMigrator cfg $ do
+        madminAddr <- tryFindAddress
+        results <- runMigration madminAddr
+        _ <- liftIO $ removePathForcibly buildDir
+        liftIO . print $ ("Writing Admin Details" :: String)
+        _ <- liftIO $ writeAdmin buildDir (results^.migrationAdminAddress)
+        artifacts <- forM (results^.migrationContractList) $ getContractAbis (buildDir <> "/contracts")
+        liftIO $ forM_ (mconcat artifacts) writeArtifact
+      case eMigrationRes of
+        Left e   -> putFailure e
+        Right () -> putSuccess ("Build Artifacts written!" :: String)
+
+tryFindAddress :: ( MonadError MigrationError m
+                  , MonadIO m
+                  )
+               => m (Maybe Address)
+tryFindAddress = do
+  maddrString <- liftIO $ lookupEnv "ADMIN_ADDRESS"
+  case maddrString of
+    Nothing -> return Nothing
+    Just addrString -> case stringAddress addrString of
+      Nothing -> throwError . EnvError $ "Could not parse ADMIN_ADDRESS as address"
+      Just a -> do
+        _ <- putSuccess $ "ADMIN_ADDRESS found: " <> addrString
+        return . Just $ a

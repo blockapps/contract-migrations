@@ -7,22 +7,14 @@ module Data.UploadSpec (spec) where
 import           BlockApps.Bloc21.API        hiding (mockBloc)
 import           BlockApps.Ethereum
 import           BlockApps.Strato.Types
-import           Control.Concurrent
-import           Control.Monad.Logger
-
 import           Control.Error
 import           Control.Lens
-import           Data.ByteString             (ByteString)
 import qualified Data.Map.Strict             as Map
-import           Data.Text
-import qualified Data.Text.IO                as T
-import           Data.Yaml
 import           Test.Hspec
-import           Text.RawString.QQ
 
 import           Network.HTTP.Client         (defaultManagerSettings,
                                               newManager)
-import           Network.Wai.Handler.Warp    (run, testWithApplication)
+import           Network.Wai.Handler.Warp    (testWithApplication)
 import           Servant
 import           Servant.Client
 import           Servant.Mock
@@ -40,10 +32,12 @@ adminSpec :: Spec
 adminSpec =
 
   describe "can make an admin user" $
+
     around (testWithApplication . return $ mockBloc) $
+
       it "can make an admin user" $ \port -> do
-        bloc <- mockBlocClient port
-        eAddr <- runExceptT $ createAdmin bloc adminConfig
+        let cfg = mkConfig port
+        eAddr <- runMigrator cfg createAdmin
         eAddr `shouldSatisfy` isRight
 
 uploadSpec :: Spec
@@ -51,15 +45,17 @@ uploadSpec =
 
   describe "it can upload contracts" $
     around (testWithApplication . return $ mockBloc) $ do
+
       it "can upload a single contract" $ \port -> do
-        bloc <- mockBlocClient port
-        Right addr <- runExceptT $ createAdmin bloc adminConfig
-        cAddr <- runExceptT (exampleUpload'>>= \c -> deployContract bloc adminConfig addr c SILENT)
+        let cfg = mkConfig port
+        Right addr <- runMigrator cfg createAdmin
+        cAddr <- runMigrator cfg (exampleUpload' >>= \c -> deployContract addr c)
         cAddr `shouldSatisfy` isRight
+
       it "can upload a many contracts" $ \port -> do
-        bloc <- mockBlocClient port
-        Right addr <- runExceptT $ createAdmin bloc adminConfig
-        newCs <- runExceptT $ deployContracts bloc adminConfig addr "./contracts/contracts.yaml" "./contracts" SILENT
+        let cfg = mkConfig port
+        Right addr <- runMigrator cfg createAdmin
+        newCs <- runMigrator cfg $ deployContracts addr
         let (Right newCs') = newCs
         Prelude.head newCs' ^. contractName  `shouldBe` "IdentityAccessManager"
 
@@ -67,8 +63,8 @@ uploadSpec =
 -- utils
 --------------------------------------------------------------------------------
 
-adminConfig :: AdminConfig
-adminConfig = AdminConfig "Admin" "Password" True
+admnConfig :: AdminConfig
+admnConfig = AdminConfig "Admin" "Password" True
 
 mockBlocClient :: Int -> IO ClientEnv
 mockBlocClient port = do
@@ -77,10 +73,17 @@ mockBlocClient port = do
   return $ ClientEnv mgr url
 
 mockBloc :: Application
-mockBloc = serve blocApi mockBloc
+mockBloc = serve blocApi mockBlocServer
   where
-    mockBloc :: Server BlocAPI
-    mockBloc = mock blocApi Proxy
+    mockBlocServer :: Server BlocAPI
+    mockBlocServer = mock blocApi Proxy
+
+mkConfig :: Int -> MigrationConfig
+mkConfig port = unsafePerformIO $ do
+  let cf = ContractFileConfig "./contracts/contracts.yaml" "./contracts"
+  bloc <- mockBlocClient port
+  return $ MigrationConfig admnConfig bloc SILENT cf
+{-# NOINLINE mkConfig #-}
 
 exampleUpload :: ContractForUpload 'AsFilename
 exampleUpload = ContractForUpload
@@ -92,5 +95,5 @@ exampleUpload = ContractForUpload
   , _contractUploadIndexed = Just []
   }
 
-exampleUpload' :: ExceptT MigrationError IO (ContractForUpload 'AsCode)
-exampleUpload' = withSourceCode "./contracts" exampleUpload
+exampleUpload' :: Migrator (ContractForUpload 'AsCode)
+exampleUpload' = withSourceCode exampleUpload

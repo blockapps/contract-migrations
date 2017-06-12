@@ -1,13 +1,16 @@
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE KindSignatures       #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE StandaloneDeriving   #-}
-{-# LANGUAGE TemplateHaskell      #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures             #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module BlocMigrations where
 
@@ -16,14 +19,14 @@ import qualified BlockApps.Bloc21.Client      as Bloc
 import           BlockApps.Ethereum           (Address, addressString)
 import           BlockApps.Solidity.ArgValue
 import           BlockApps.Strato.Types       (Strung (..))
-import           Control.Error
-import           Control.Lens                 (use, (%=), (&), (.=), (.~), (^.),
-                                               _1, _2)
+import qualified Control.Error                as E
+import           Control.Lens                 (use, view, (%=), (&), (.=), (.~),
+                                               (^.), _1, _2)
 import           Control.Lens.TH              (makeLenses)
 import           Control.Monad                (forM)
 import           Control.Monad.Except
+import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
-import           Data.Bifunctor               (first)
 import qualified Data.Graph                   as G
 import           Data.List                    (dropWhile, last, reverse,
                                                takeWhile)
@@ -49,6 +52,8 @@ import           Text.ParserCombinators.ReadP
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 --------------------------------------------------------------------------------
+-- | Migrator
+--------------------------------------------------------------------------------
 
 data MigrationError = ParseError Text
                     | BlocError Text
@@ -59,7 +64,46 @@ data MigrationError = ParseError Text
 liftServantErr :: ServantError -> MigrationError
 liftServantErr e = case e of
   FailureResponse _ _ bdy -> BlocError $ cs bdy
-  _ -> BlocError "Unknown Bloc Error, check bloc logs."
+  _                       -> BlocError "Unknown Bloc Error, check bloc logs."
+
+data AdminConfig =
+  AdminConfig { _adminUsername :: UserName
+              , _adminPassword :: Password
+              , _adminFaucet   :: Bool
+              } deriving (Eq, Show)
+makeLenses ''AdminConfig
+
+data VerboseMode = DEBUG
+                 | SILENT
+                  deriving (Show, Read, Eq)
+
+data ContractFileConfig =
+  ContractFileConfig { _contractsYaml :: FilePath
+                     , _contractsDir  :: FilePath
+                     }
+makeLenses ''ContractFileConfig
+
+data MigrationConfig =
+  MigrationConfig { _adminConfig        :: AdminConfig
+                  , _blocClient         :: ClientEnv
+                  , _verboseMode        :: VerboseMode
+                  , _contractFileConfig :: ContractFileConfig
+                  }
+
+makeLenses ''MigrationConfig
+
+newtype Migrator a = Migrator { runMigrator' :: ExceptT MigrationError (ReaderT MigrationConfig IO) a }
+  deriving (Functor, Applicative, Monad, MonadIO, MonadError MigrationError, MonadReader MigrationConfig)
+
+runMigrator :: MigrationConfig -> forall a . Migrator a -> IO (Either MigrationError a)
+runMigrator cfg = flip runReaderT cfg . runExceptT . runMigrator'
+
+(!?) :: MonadError e m => m (Maybe a) -> e -> m a
+(!?) m e = do
+  ma <- m
+  case ma of
+    Nothing -> throwError e
+    Just a  -> return a
 
 --------------------------------------------------------------------------------
 -- | Formatting
@@ -72,44 +116,71 @@ putFailure :: (Show a, MonadIO m) => a -> m ()
 putFailure = liftIO . print . PP.red . PP.pretty . show
 
 --------------------------------------------------------------------------------
--- | Manage Admin
+-- | Environment
 --------------------------------------------------------------------------------
 
-data AdminConfig =
-  AdminConfig { _adminUsername :: UserName
-              , _adminPassword :: Password
-              , _adminFaucet   :: Bool
-              } deriving (Eq, Show)
-makeLenses ''AdminConfig
-
-getAdminFromEnv :: ExceptT MigrationError IO AdminConfig
+getAdminFromEnv :: ( MonadError MigrationError m
+                   , MonadIO m
+                   )
+                => m AdminConfig
 getAdminFromEnv = do
-  usrName <- UserName . T.pack <$> (lookupEnv "BLOC_ADMIN_USERNAME" !? EnvError "Could Not Find BLOC_ADMIN_USERNAME.")
-  pwd <- Password . T.encodeUtf8 . T.pack <$> (lookupEnv "BLOC_ADMIN_PASSWORD" !? EnvError "Could Not Find BLOC_ADMIN_PASSWORD.")
-  faucetOn <- read <$> (lookupEnv "BLOC_ADMIN_FAUCET" !? EnvError "Could not find BLOC_ADMIN_FAUCET.")
+  usrName <- UserName . T.pack <$>
+    liftIO (lookupEnv "BLOC_ADMIN_USERNAME") !? EnvError "Could Not Find BLOC_ADMIN_USERNAME."
+  pwd <- Password . T.encodeUtf8 . T.pack <$>
+    liftIO (lookupEnv "BLOC_ADMIN_PASSWORD") !? EnvError "Could Not Find BLOC_ADMIN_PASSWORD."
+  faucetOn <- read <$> liftIO (lookupEnv "BLOC_ADMIN_FAUCET") !? EnvError "Could not find BLOC_ADMIN_FAUCET."
   return $ AdminConfig usrName pwd faucetOn
 
-makeBlocEnv :: ExceptT MigrationError IO ClientEnv
+makeBlocEnv :: ( MonadError MigrationError m
+               , MonadIO m
+               )
+            => m ClientEnv
 makeBlocEnv = do
-    scheme <- (lookupEnv "BLOC_SCHEME" !? EnvError "Couldn't find BLOC_SCHEME") >>= mkScheme
-    host <- lookupEnv "BLOC_HOST" !? EnvError "Couldn't find BLOC_HOST"
-    port <- fmap read (lookupEnv "BLOC_PORT" !? EnvError "Couldn't find BLOC_PORT")
-    path <- lookupEnv "BLOC_PATH" !? EnvError "Couldn't find BLOC_PATH"
+    scheme <- liftIO (lookupEnv "BLOC_SCHEME") !? EnvError "Couldn't find BLOC_SCHEME" >>= mkScheme
+    host <- liftIO  (lookupEnv "BLOC_HOST") !? EnvError "Couldn't find BLOC_HOST"
+    port <- read <$> liftIO (lookupEnv "BLOC_PORT") !? EnvError "Couldn't find BLOC_PORT"
+    path <- liftIO (lookupEnv "BLOC_PATH") !? EnvError "Couldn't find BLOC_PATH"
     mgr <- liftIO $ newManager defaultManagerSettings
     return $ ClientEnv mgr (BaseUrl scheme host port path)
   where
-    mkScheme :: String -> ExceptT MigrationError IO Scheme
+    mkScheme :: MonadError MigrationError m => String -> m Scheme
     mkScheme "Http"  = return Http
     mkScheme "Https" = return Https
-    mkScheme _       = throwE . EnvError $ "Scheme must be either Http or Https."
+    mkScheme _       = throwError . EnvError $ "Scheme must be either Http or Https."
 
-createAdmin :: ClientEnv
-            -> AdminConfig
-            -> ExceptT MigrationError IO Address
-createAdmin clientEnv admin =
-    let postUsersUserRequest = (admin^.adminPassword)
-    in ExceptT $ first liftServantErr <$>
-         runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) clientEnv
+makeFileConfig :: ( MonadError MigrationError m
+                  , MonadIO m
+                  )
+               => m ContractFileConfig
+makeFileConfig = do
+  yml <- liftIO (lookupEnv "CONTRACTS_YAML") !? EnvError "Couldn't find CONTRACTS_YAML"
+  cDir <- liftIO (lookupEnv "CONTRACTS_DIR") !? EnvError "Couldn't find CONTRACTS_DIR"
+  return $ ContractFileConfig yml cDir
+
+mkMigrationConfig :: ( MonadError MigrationError m
+                     , MonadIO m
+                     )
+                  => m MigrationConfig
+mkMigrationConfig = do
+  admin <- getAdminFromEnv
+  bloc <- makeBlocEnv
+  verbose <- liftIO $ maybe SILENT read <$> lookupEnv "VERBOSE_CONTRACT_UPLOAD"
+  fc <- makeFileConfig
+  return $ MigrationConfig admin bloc verbose fc
+
+createAdmin :: ( MonadError MigrationError m
+               , MonadIO m
+               , MonadReader MigrationConfig m
+               )
+            => m Address
+createAdmin = do
+    admin <- view adminConfig
+    env <- view blocClient
+    let postUsersUserRequest = admin^.adminPassword
+    eresp <- liftIO $ runClientM (Bloc.postUsersUser (admin^.adminUsername)  (admin^.adminFaucet) postUsersUserRequest) env
+    case eresp of
+      Left e     -> throwError . liftServantErr $ e
+      Right addr -> return addr
 
 --------------------------------------------------------------------------------
 -- | Parsing Yaml files for Contract info
@@ -151,9 +222,12 @@ instance FromJSON (ContractForUpload 'AsFilename) where
 -- | This looks for any directory that contains a file with a
 -- name that contains 'filename' and returns the found file,
 -- but errors out if there are none or more thatn one.
-findUniqueFile :: FilePath
+findUniqueFile :: ( MonadError MigrationError m
+                  , MonadIO m
+                  )
+               => FilePath
                -> String
-               -> ExceptT MigrationError IO FilePath
+               -> m FilePath
 findUniqueFile path filename = do
   matches <- liftIO $ find always (contains filename) path
   case matches of
@@ -164,9 +238,12 @@ findUniqueFile path filename = do
               "more than one match for: " <> T.pack filename <> " in " <> T.pack path
 
 -- | searches for a file and grabs the source code.
-grabSourceCode :: FilePath
+grabSourceCode :: ( MonadError MigrationError m
+                  , MonadIO m
+                  )
+               => FilePath
                -> String
-               -> ExceptT MigrationError IO Text
+               -> m Text
 grabSourceCode path filename = findUniqueFile path filename >>= liftIO . T.readFile
 
 isImportStatement :: Text -> Bool
@@ -182,7 +259,11 @@ importsParser = fmap last $ do
     quoter =  satisfy (`elem` ("'\"" :: String))
 
 -- | get all the dependencies for a solidity file.
-grabImports :: Text -> ExceptT MigrationError IO [FilePath]
+grabImports :: ( MonadError MigrationError m
+               , MonadIO m
+               )
+            => Text
+            -> m [FilePath]
 grabImports sourceCode =
     let ls = T.lines sourceCode
         importStrings = map T.unpack $ takeWhile isImportStatement ls
@@ -204,17 +285,18 @@ makeLenses ''GraphState
 
 -- | This get's the dependency graph for the files. Again, it rests on the assumption
 -- that in any contracts project, there every contract filename is unique.
-grabDependencyGraph :: FilePath
+grabDependencyGraph :: ( MonadError MigrationError m
+                       , MonadIO m
+                       , MonadReader MigrationConfig m
+                       )
+                    => FilePath
                     -> [FilePath]
-                    -> FilePath -- root contracts directory
-                    -> ExceptT MigrationError IO DependencyGraph
-grabDependencyGraph _main fps contractsDir = do
+                    -> m DependencyGraph
+grabDependencyGraph _main fps = do
     let initState = GraphState (Map.singleton _main (S.fromList fps)) (S.singleton _main)
     GraphState edges _ <- execStateT (grabDependencyGraph' fps) initState
     return . G.graphFromEdges . map (\(k,ns) -> (k, k, S.toList ns)) $ Map.toList edges
   where
-    grabDependencyGraph' :: [FilePath]
-                         -> StateT GraphState (ExceptT MigrationError IO) ()
     grabDependencyGraph' filepaths = do
       nbrs <- lift $ traverse grabNeighbors filepaths
       edgeSet %= \known -> foldr addEdges known nbrs
@@ -226,9 +308,9 @@ grabDependencyGraph _main fps contractsDir = do
         _ -> do
           visitedVertices .= visited'
           grabDependencyGraph' nextVertices
-    grabNeighbors :: FilePath -> ExceptT MigrationError IO (FilePath, S.Set FilePath)
     grabNeighbors filepath = do
-      nbrs <- grabSourceCode contractsDir filepath >>= grabImports
+      contractDir <- view $ contractFileConfig . contractsDir
+      nbrs <- grabSourceCode contractDir filepath >>= grabImports
       return (filepath, S.fromList nbrs)
     addEdges :: (FilePath, S.Set FilePath) -> Map FilePath (S.Set FilePath) -> Map FilePath (S.Set FilePath)
     addEdges (v, ns) m = case Map.lookup v m of
@@ -236,30 +318,40 @@ grabDependencyGraph _main fps contractsDir = do
       Just ns' -> Map.insert v (ns `S.union` ns') m
 
 -- | Collect all the source code for a list of filenames.
-readAndTrimFiles :: [FilePath] -> FilePath -> ExceptT MigrationError IO Text
-readAndTrimFiles fps contractsDir = do
-    sources <- traverse (findUniqueFile contractsDir >=>  fmap trimDependencies . liftIO . T.readFile) fps
+readAndTrimFiles :: ( MonadError MigrationError m
+                    , MonadIO m
+                    , MonadReader MigrationConfig m
+                    )
+                 => [FilePath]
+                 -> m Text
+readAndTrimFiles fps = do
+    contractDir <- view $ contractFileConfig . contractsDir
+    sources <- traverse (findUniqueFile contractDir >=>  fmap trimDependencies . liftIO . T.readFile) fps
     return . T.unlines . map T.strip $ sources
 
 trimDependencies :: Text -> Text
 trimDependencies = T.strip . T.unlines . dropWhile isImportStatement . T.lines
 
 -- | replace the contract source file with the source code in Text form.
-withSourceCode :: FilePath -- ^ contracts dir
-               -> ContractForUpload 'AsFilename
-               -> ExceptT MigrationError IO (ContractForUpload 'AsCode)
-withSourceCode contractsDir c = do
-  sourceCode <- grabSourceCode contractsDir $ c^.contractUploadSource
+withSourceCode :: ( MonadError MigrationError m
+                  , MonadIO m
+                  , MonadReader MigrationConfig m
+                  )
+               => ContractForUpload 'AsFilename
+               -> m (ContractForUpload 'AsCode)
+withSourceCode c = do
+  contractDir <- view $ contractFileConfig . contractsDir
+  sourceCode <- grabSourceCode contractDir $ c^.contractUploadSource
   deps <- grabImports sourceCode
   case deps of
     [] -> return $ c & contractUploadSource .~ sourceCode
     ds -> do
       let _main = c^.contractUploadSource
-      g <- grabDependencyGraph _main ds contractsDir
+      g <- grabDependencyGraph _main ds
       let orderedFileIndices = G.topSort (g^._1)
           vertexMapping = g^._2
           orderedFiles = reverse $ map (\v -> vertexMapping v ^._1) orderedFileIndices
-      fullSource <- readAndTrimFiles orderedFiles contractsDir
+      fullSource <- readAndTrimFiles orderedFiles
       return $ c & contractUploadSource .~ fullSource
 
 --------------------------------------------------------------------------------
@@ -273,13 +365,17 @@ data Contract =
 makeLenses ''Contract
 
 -- |  deploys a contract.
-deployContract :: ClientEnv
-               -> AdminConfig
-               -> Address -- ^ the admin's address
+deployContract :: ( MonadError MigrationError m
+                  , MonadIO m
+                  , MonadReader MigrationConfig m
+                  )
+               => Address -- ^ the admin's address
                -> ContractForUpload 'AsCode
-               -> VerboseMode -- ^ print contract source code
-               -> ExceptT MigrationError IO Address
-deployContract env admin adminAddr contract verbose =
+               -> m Address
+deployContract adminAddr contract = do
+  admin <- view adminConfig
+  env <- view blocClient
+  verbose <- view verboseMode
   let postContractReq = PostUsersContractRequest
         { postuserscontractrequestSrc = contract^.contractUploadSource
         , postuserscontractrequestPassword = admin^.adminPassword
@@ -292,55 +388,48 @@ deployContract env admin adminAddr contract verbose =
         { postcompilerequestSearchable = contract^.contractUploadIndexed
         , postcompilerequestContractName = Just $ contract^.contractUploadName
         , postcompilerequestSource = contract^.contractUploadSource}
-  in ExceptT $ do
-       when (isJust $ postcompilerequestSearchable indexContractReq) $ do
-         let searchableList = fromMaybe [] $ postcompilerequestSearchable indexContractReq
-         _ <- runClientM (Bloc.postContractsCompile [indexContractReq]) env
-         putSuccess $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
-       eresp <- runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr postContractReq) env
-       case eresp of
-         Left serr -> do
-           msg <- message serr
-           return . Left $ msg
-         Right success -> do
-           putSuccess $ "Deployed Contract: " <> contract^.contractUploadName
-           when (verbose == DEBUG) $
-             liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
-           return . Right $ success
+  when (E.isJust $ postcompilerequestSearchable indexContractReq) $ do
+    let searchableList = E.fromMaybe [] $ postcompilerequestSearchable indexContractReq
+    _ <- liftIO $ runClientM (Bloc.postContractsCompile [indexContractReq]) env
+    putSuccess $ "Indexed Contracts -- " <> T.intercalate ", " searchableList
+  eresp <- liftIO $ runClientM (Bloc.postUsersContract (admin^.adminUsername) adminAddr postContractReq) env
+  case eresp of
+    Left serr -> throwError $ message serr
+    Right success -> do
+      putSuccess $ "Deployed Contract: " <> contract^.contractUploadName
+      when (verbose == DEBUG) $
+        liftIO . putStrLn . T.unpack $ contract^.contractUploadSource
+      return success
   where
-    message :: ServantError -> IO MigrationError
-    message e = do
-      let BlocError eTxt = liftServantErr $ e
-      return $ BlocError $ mconcat [ "Failed to deploy -- ["
-                                   , contract ^. contractUploadName
-                                   , "]-- "
-                                   , eTxt
-                                   ]
+    message :: ServantError -> MigrationError
+    message e =
+      let BlocError eTxt = liftServantErr e
+      in BlocError $ mconcat [ "Failed to deploy -- ["
+                             , contract ^. contractUploadName
+                             , "]-- "
+                             , eTxt
+                             ]
 
 -- | deploy all the contracts listed in the contracts.yaml file.
-deployContracts :: ClientEnv
-                -> AdminConfig
-                -> Address -- ^ ownerAddress
-                -> FilePath -- ^ location of contracts.yaml
-                -> FilePath -- ^ contracts dir
-                -> VerboseMode -- ^ print contracts
-                -> ExceptT MigrationError IO [Contract]
-deployContracts env admin ownerAddr contractYaml contractsDir verbose = do
-  ecs <- liftIO $ Y.decodeFileEither contractYaml
+deployContracts :: ( MonadError MigrationError m
+                   , MonadIO m
+                   , MonadReader MigrationConfig m
+                   )
+                => Address -- ^ ownerAddress
+                -> m [Contract]
+deployContracts ownerAddr = do
+  yml <- view $ contractFileConfig . contractsYaml
+  ecs <- liftIO $ Y.decodeFileEither yml
   case ecs of
     Left e -> throwError . ParseError . T.pack . show $ e
     Right contracts -> forM contracts $ \c -> do
-      c' <- withSourceCode contractsDir c
-      addr <- deployContract env admin ownerAddr c' verbose
+      c' <- withSourceCode c
+      addr <- deployContract ownerAddr c'
       return $ Contract (ContractName $ c^.contractUploadName) addr
 
 --------------------------------------------------------------------------------
 -- | Run the migration
 --------------------------------------------------------------------------------
-
-data VerboseMode = DEBUG
-                 | SILENT
-                  deriving (Show, Read, Eq)
 
 data MigrationResult =
   MigrationResult { _migrationAdminAddress :: Address
@@ -350,18 +439,23 @@ makeLenses ''MigrationResult
 
 -- | This will create the admin user and deploy all the contracts,
 -- returning the summary in the MigrationResult
-runMigration :: ClientEnv
-             -> AdminConfig
-             -> FilePath -- ^ location of contracts.yaml
-             -> FilePath -- ^ localtion of contracts dir
-             -> IO (Either MigrationError MigrationResult)
-runMigration env admin contractYaml contractsDir = runExceptT $ do
-  verbose <- liftIO $ maybe SILENT read <$> lookupEnv "VERBOSE_CONTRACT_UPLOAD"
+runMigration :: ( MonadError MigrationError m
+                , MonadIO m
+                , MonadReader MigrationConfig m
+                )
+             => Maybe Address
+             -> m MigrationResult
+runMigration mAddr = do
+  verbose <- view verboseMode
   liftIO . print $ "Verbose Level: " <> show verbose
-  adminAddress <- createAdmin env admin
-  putSuccess $ "Admin created! Admin Address: " <> addressString adminAddress
+  adminAddress <- case mAddr of
+    Just addr -> return addr
+    Nothing -> do
+      liftIO . print $ ("Couldn't find ADMIN_ADDRESS, creating new admin..." :: String)
+      addr <- createAdmin
+      _ <- putSuccess $ "Admin created! Admin Address: " <> addressString addr
+      return addr
   liftIO . print $ ("Deploying Contracts" :: String)
-  contracts <- deployContracts env admin adminAddress contractYaml contractsDir verbose
+  contracts <- deployContracts adminAddress
   putSuccess ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress contracts
-

@@ -53,6 +53,7 @@ executable upload-contracts
                      , directory
                      , errors
                      , lens
+                     , mtl
                      , servant-client
                      , string-conversions
                      , text
