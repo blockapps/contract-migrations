@@ -9,7 +9,7 @@ import           BlocMigrations
 import           BlockApps.Bloc21.API
 import qualified BlockApps.Bloc21.Client as Bloc
 import           BlockApps.Ethereum
-import           BlockApps.Solidity.Xabi (MaybeNamed (..))
+import           BlockApps.Solidity.Xabi (MaybeNamed (..), ContractDetails(..))
 import           Control.Lens            (view, (^.))
 import           Control.Lens.TH         (makeLenses)
 import           Control.Monad           (forM)
@@ -63,7 +63,8 @@ getContractAbis dir contract = do
         Right ds -> return ds
     let bp = dir <> "/" <> cs  cNameText <> "/"
         fp = cs depNameText <> ".json"
-    return $ BuildArtifact bp fp $ encode deets
+    return $ BuildArtifact bp fp $ encode
+      deets {contractdetailsAddress = Just .Named . T.pack . addressString $ contract ^. contractAddress}
 
 data BuildArtifact =
   BuildArtifact { _buildPath     :: FilePath
