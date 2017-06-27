@@ -9,7 +9,7 @@ import           BlocMigrations
 import           BlockApps.Bloc21.API
 import qualified BlockApps.Bloc21.Client as Bloc
 import           BlockApps.Ethereum
-import           BlockApps.Solidity.Xabi (MaybeNamed (..), ContractDetails(..))
+import           BlockApps.Solidity.Xabi (ContractDetails (..), MaybeNamed (..))
 import           Control.Lens            (view, (^.))
 import           Control.Lens.TH         (makeLenses)
 import           Control.Monad           (forM)

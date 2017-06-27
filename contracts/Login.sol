@@ -1,3 +1,5 @@
+pragma solidity ^0.4.10;
+
 import "./Modifiers/Owned.sol";
 
 contract Login is Owned {

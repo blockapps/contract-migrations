@@ -1,4 +1,4 @@
-.PHONY: hlint stylish test-haskell deploy-contracts
+.PHONY: hlint stylish test-haskell deploy-contracts solc-builder
 
 # Admin Config
 BLOC_ADMIN_USERNAME ?= "admin"
@@ -12,11 +12,13 @@ BLOC_PORT ?= 10001
 BLOC_PATH ?= "/bloc/v2.1"
 
 # Contracts Config
-CONTRACTS_YAML ?= "./contracts-iam.yaml"
-CONTRACTS_DIR ?= "./contracts-iam"
+CONTRACTS_YAML ?= "./contracts.yaml"
+CONTRACTS_DIR ?= "./contracts"
 
 BUILD_ROOT ?= "."
 VERBOSE_CONTRACT_UPLOAD ?= "SILENT"
+
+SOLC_SETTINGS ?= "DEFAULT"
 
 deploy-contracts:
 		BLOC_SCHEME=$(BLOC_SCHEME) \
@@ -30,7 +32,22 @@ deploy-contracts:
     CONTRACTS_YAML=$(CONTRACTS_YAML) \
     BUILD_ROOT=$(BUILD_ROOT) \
     VERBOSE_CONTRACT_UPLOAD=$(VERBOSE_CONTRACT_UPLOAD) \
-    upload-contracts
+    ./upload-contracts
+
+solc-builder:
+		BLOC_SCHEME=$(BLOC_SCHEME) \
+		BLOC_HOST=$(BLOC_HOST) \
+		BLOC_PORT=$(BLOC_PORT) \
+		BLOC_PATH=$(BLOC_PATH) \
+    BLOC_ADMIN_USERNAME=$(BLOC_ADMIN_USERNAME) \
+    BLOC_ADMIN_PASSWORD=$(BLOC_ADMIN_PASSWORD) \
+    BLOC_ADMIN_FAUCET=$(BLOC_ADMIN_FAUCET) \
+    CONTRACTS_DIR=$(CONTRACTS_DIR) \
+    CONTRACTS_YAML=$(CONTRACTS_YAML) \
+    BUILD_ROOT=$(BUILD_ROOT) \
+    VERBOSE_CONTRACT_UPLOAD=$(VERBOSE_CONTRACT_UPLOAD) \
+    SOLC_SETTINGS=$(SOLC_SETTINGS) \
+    stack exec -- solc-object-builder
 
 test-ci:
 		stack test

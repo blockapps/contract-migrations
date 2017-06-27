@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -11,6 +12,8 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans       #-}
 
 module BlocMigrations where
 
@@ -27,7 +30,10 @@ import           Control.Monad                (forM)
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State.Lazy
+import qualified Data.Aeson                   as AE
+import qualified Data.ByteString.Lazy         as LBS
 import qualified Data.Graph                   as G
+import qualified Data.HashMap.Lazy            as HM
 import           Data.List                    (dropWhile, last, reverse,
                                                takeWhile)
 import           Data.Map.Strict              (Map)
@@ -41,6 +47,7 @@ import qualified Data.Text.Encoding           as T
 import qualified Data.Text.IO                 as T
 import           Data.Yaml                    (FromJSON, (.:), (.:?))
 import qualified Data.Yaml                    as Y
+import           GHC.Generics                 (Generic)
 import           Network.HTTP.Client          (defaultManagerSettings,
                                                newManager)
 import           Numeric.Natural
@@ -52,7 +59,7 @@ import           Text.ParserCombinators.ReadP
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 --------------------------------------------------------------------------------
--- | Migrator
+-- * Migrator
 --------------------------------------------------------------------------------
 
 data MigrationError = ParseError Text
@@ -106,7 +113,7 @@ runMigrator cfg = flip runReaderT cfg . runExceptT . runMigrator'
     Just a  -> return a
 
 --------------------------------------------------------------------------------
--- | Formatting
+-- * Formatting
 --------------------------------------------------------------------------------
 
 putSuccess :: (Show a, MonadIO m) => a -> m ()
@@ -415,7 +422,7 @@ deployContracts :: ( MonadError MigrationError m
                    , MonadIO m
                    , MonadReader MigrationConfig m
                    )
-                => Address -- ^ ownerAddress
+                => Address -- ^ ownerAddress /
                 -> m [Contract]
 deployContracts ownerAddr = do
   yml <- view $ contractFileConfig . contractsYaml
@@ -459,3 +466,168 @@ runMigration mAddr = do
   contracts <- deployContracts adminAddress
   putSuccess ("Successfully Depployed Contracts" :: String)
   return $ MigrationResult adminAddress contracts
+
+--------------------------------------------------------------------------------
+-- * Solc JSON
+--------------------------------------------------------------------------------
+
+data Language = Solidity
+              | Serpant
+              | LLL
+              | Assembly
+              deriving (Generic)
+
+instance AE.ToJSON Language where
+  toJSON l = case l of
+    Solidity -> AE.String "Solidity"
+    Serpant  -> AE.String "serpant"
+    LLL      -> AE.String "lll"
+    Assembly -> AE.String "assembly"
+
+data OptimizerSettings =
+  OptimizerSettings { _optimizerEnabled :: Bool
+                    , _optimizerRuns    :: Int
+                    } deriving (Generic)
+
+makeLenses ''OptimizerSettings
+
+instance AE.ToJSON OptimizerSettings where
+  toJSON os = AE.object [ "enabled" AE..= (os ^. optimizerEnabled)
+                        , "runs" AE..= (os ^. optimizerRuns)
+                        ]
+
+data SolcOutput =
+    ABI
+  | Metadata
+  | EVMBytecode
+  | SourceMapping
+    deriving (Generic)
+
+instance AE.ToJSON SolcOutput where
+  toJSON so = case so of
+    ABI           -> AE.String "abi"
+    Metadata      -> AE.String "metadata"
+    EVMBytecode   -> AE.String "evm.bytecode"
+    SourceMapping -> AE.String "evm.sourceMap"
+
+defaultSolcOutputs :: [SolcOutput]
+defaultSolcOutputs = [ABI, EVMBytecode]
+
+debugSolcOutputs :: [SolcOutput]
+debugSolcOutputs = [ABI, SourceMapping]
+
+data SolcSettings =
+  SolcSettings { _solcOptimizerSettings :: OptimizerSettings
+               , _solcUseMetadata       :: Bool
+               , _solcOutputSelection   :: [SolcOutput]
+               } deriving (Generic)
+makeLenses ''SolcSettings
+
+instance AE.ToJSON SolcSettings where
+  toJSON ss = AE.object [ "optimizer" AE..= (ss ^. solcOptimizerSettings)
+                        , "metadata" AE..= md
+                        , "outputSelection" AE..= outputSelection
+                        ]
+    where
+      md = AE.object [ "useLiteralContent" AE..= (ss ^. solcUseMetadata) ]
+      outputSelection = AE.object [ "*" AE..= AE.object ["*" AE..= (ss ^. solcOutputSelection)]]
+
+defaultSolcSettings :: SolcSettings
+defaultSolcSettings = SolcSettings os True defaultSolcOutputs
+  where
+    os = OptimizerSettings True 500
+
+debugSolcSettings :: SolcSettings
+debugSolcSettings = SolcSettings os True debugSolcOutputs
+  where
+    os = OptimizerSettings False 0
+
+readSolcSettings :: Maybe String -> SolcSettings
+readSolcSettings ms = case ms of
+  Nothing -> defaultSolcSettings
+  Just ss -> if ss == "DEFAULT" then defaultSolcSettings else debugSolcSettings
+
+data SolcObject =
+  SolcObject { _solcLanguage :: Language
+             , _solcSources  :: [(ContractName,Text)]
+             , _solcSettings :: SolcSettings
+             } deriving (Generic)
+
+makeLenses ''SolcObject
+
+instance AE.ToJSONKey ContractName
+
+instance Ord ContractName where
+  (ContractName n1) <= (ContractName n2) = n1 <= n2
+
+instance AE.ToJSON SolcObject where
+  toEncoding so =
+    AE.pairs ( "language" AE..= (so ^. solcLanguage)
+            <> "sources" AE..= (so ^. solcSources)
+            <> "settings" AE..= (so ^. solcSettings)
+             )
+
+
+readAndTrimFiles' :: ( MonadError MigrationError m
+                    , MonadIO m
+                    , MonadReader MigrationConfig m
+                    )
+                  => [FilePath]
+                  -> m [(ContractName, Text)]
+readAndTrimFiles' fps = do
+    contractDir <- view $ contractFileConfig . contractsDir
+    traverse (\fp -> do
+      srcFile <- findUniqueFile contractDir fp
+      src <- liftIO . T.readFile $ srcFile
+      srcFile' <- maybe (throwError . ParseError $ "Missing dir prefix") return $
+                           T.stripPrefix (T.pack contractDir <> "/") . T.pack $ srcFile
+      return (ContractName srcFile', src)) fps
+
+instance {-# OVERLAPPING #-} AE.ToJSON [(ContractName, Text)] where
+  toJSON [] = error "You must supply more than one contract"
+  toJSON [(ContractName cName, cTxt)]        = AE.object [ cName AE..= (AE.object ["content" AE..= cTxt ])]
+  toJSON ((ContractName cName, cTxt) : rest) = let AE.Object hm = AE.toJSON rest
+                                               in AE.Object $ HM.insert cName (AE.object ["content" AE..= cTxt]) hm
+
+-- | replace the contract source file with the source code in Text form.
+solcBuilder :: ( MonadError MigrationError m
+               , MonadIO m
+               , MonadReader MigrationConfig m
+               )
+            => FilePath -- ^ contract source
+            -> SolcSettings
+            -> m LBS.ByteString
+solcBuilder srcFile settings = do
+  liftIO $ print $ "Running solc-builder for: "  <> srcFile <> " ..."
+  contractDir <- view $ contractFileConfig . contractsDir
+  sourceCode <- grabSourceCode contractDir srcFile
+  deps <- grabImports sourceCode
+  case deps of
+    [] -> return . AE.encode $ SolcObject Solidity
+      [(ContractName $ T.pack srcFile, sourceCode)] settings
+    ds -> do
+      let _main = srcFile
+      g <- grabDependencyGraph _main ds
+      let orderedFileIndices = G.topSort (g^._1)
+          vertexMapping = g^._2
+          orderedFiles = reverse $ map (\v -> vertexMapping v ^._1) orderedFileIndices
+
+      fullSourceMap <- readAndTrimFiles' orderedFiles
+      let result = SolcObject Solidity fullSourceMap settings
+      return . AE.encode $ result
+
+runSolcBuilder :: ( MonadError MigrationError m
+                  , MonadIO m
+                  , MonadReader MigrationConfig m
+                  )
+               => SolcSettings
+               -> m [LBS.ByteString]
+runSolcBuilder settings = do
+  yml <- view $ contractFileConfig . contractsYaml
+  ecs <- liftIO $ Y.decodeFileEither yml
+  case ecs of
+    Left e -> throwError . ParseError . T.pack . show $ e
+    Right (contracts :: [ContractForUpload 'AsFilename]) ->
+      let srcFiles = map (^.contractUploadSource) contracts
+      in forM srcFiles $ flip solcBuilder settings
+--

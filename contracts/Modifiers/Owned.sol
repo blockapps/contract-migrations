@@ -1,7 +1,8 @@
+pragma solidity ^0.4.10;
 contract Owned {
   address public owner;
-  modifier onlyOwner(){ if (isOwner(msg.sender)) _}
-  modifier ifOwner(address sender) { if(isOwner(sender)) _}
+  modifier onlyOwner(){ if (isOwner(msg.sender)) _; }
+  modifier ifOwner(address sender) { if(isOwner(sender)) _; }
 
   function Owned(){
       owner = msg.sender;
